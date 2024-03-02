@@ -141,6 +141,11 @@ converting the dict to the combined table.
  * dicts created to pass keyword arguments).
  * Making this 8, rather than 4 reduces the number of resizes for most
  * dictionaries, without any significant extra memory use.
+PyDict_MINSIZE 是任何新字典的起始大小。
+8 允许字典的活动条目不超过 5 个；
+实验表明这足以满足大多数字典（主要由为传递关键字参数而创建的通常较小的字典组成）。
+将其设置为 8（而不是 4）可以减少大多数词典的调整大小次数，并且不会使用任何显着的额外内存。
+
  */
 #define PyDict_MINSIZE 8
 

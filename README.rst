@@ -1,261 +1,65 @@
-This is Python version 3.7.9
-============================
-
-.. image:: https://travis-ci.org/python/cpython.svg?branch=3.7
-   :alt: CPython build status on Travis CI
-   :target: https://travis-ci.org/python/cpython/branches
-
-.. image:: https://dev.azure.com/python/cpython/_apis/build/status/Azure%20Pipelines%20CI?branchName=3.7
-   :alt: CPython build status on Azure Pipelines
-   :target: https://dev.azure.com/python/cpython/_build/latest?definitionId=4&branchName=3.7
-
-.. image:: https://codecov.io/gh/python/cpython/branch/3.7/graph/badge.svg
-   :alt: CPython code coverage on Codecov
-   :target: https://codecov.io/gh/python/cpython/branch/3.7
-
-Copyright (c) 2001-2020 Python Software Foundation.  All rights reserved.
-
-See the end of this file for further copyright and license information.
-
-.. contents::
-
-General Information
--------------------
-
-- Website: https://www.python.org
-- Source code: https://github.com/python/cpython
-- Issue tracker: https://bugs.python.org
-- Documentation: https://docs.python.org
-- Developer's Guide: https://devguide.python.org/
-
-Contributing to CPython
------------------------
-
-For more complete instructions on contributing to CPython development,
-see the `Developer Guide`_.
-
-.. _Developer Guide: https://devguide.python.org/
-
-Using Python
-------------
-
-Installable Python kits, and information about using Python, are available at
-`python.org`_.
-
-.. _python.org: https://www.python.org/
-
-Build Instructions
-------------------
-
-On Unix, Linux, BSD, macOS, and Cygwin::
-
-    ./configure
-    make
-    make test
-    sudo make install
-
-This will install Python as ``python3``.
-
-You can pass many options to the configure script; run ``./configure --help``
-to find out more.  On macOS case-insensitive file systems and on Cygwin,
-the executable is called ``python.exe``; elsewhere it's just ``python``.
-
-Building a complete Python installation requires the use of various
-additional third-party libraries, depending on your build platform and
-configure options.  Not all standard library modules are buildable or
-useable on all platforms.  Refer to the
-`Install dependencies <https://devguide.python.org/setup/#install-dependencies>`_
-section of the `Developer Guide`_ for current detailed information on
-dependencies for various Linux distributions and macOS.
-
-On macOS, there are additional configure and build options related
-to macOS framework and universal builds.  Refer to `Mac/README.rst
-<https://github.com/python/cpython/blob/3.7/Mac/README.rst>`_.
-
-On Windows, see `PCbuild/readme.txt
-<https://github.com/python/cpython/blob/3.7/PCbuild/readme.txt>`_.
-
-If you wish, you can create a subdirectory and invoke configure from there.
-For example::
-
-    mkdir debug
-    cd debug
-    ../configure --with-pydebug
-    make
-    make test
-
-(This will fail if you *also* built at the top-level directory.  You should do
-a ``make clean`` at the toplevel first.)
-
-To get an optimized build of Python, ``configure --enable-optimizations``
-before you run ``make``.  This sets the default make targets up to enable
-Profile Guided Optimization (PGO) and may be used to auto-enable Link Time
-Optimization (LTO) on some platforms.  For more details, see the sections
-below.
-
-
-Profile Guided Optimization
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-PGO takes advantage of recent versions of the GCC or Clang compilers.  If used,
-either via ``configure --enable-optimizations`` or by manually running
-``make profile-opt`` regardless of configure flags, the optimized build
-process will perform the following steps:
-
-The entire Python directory is cleaned of temporary files that may have
-resulted from a previous compilation.
-
-An instrumented version of the interpreter is built, using suitable compiler
-flags for each flavour. Note that this is just an intermediary step.  The
-binary resulting from this step is not good for real life workloads as it has
-profiling instructions embedded inside.
-
-After the instrumented interpreter is built, the Makefile will run a training
-workload.  This is necessary in order to profile the interpreter execution.
-Note also that any output, both stdout and stderr, that may appear at this step
-is suppressed.
-
-The final step is to build the actual interpreter, using the information
-collected from the instrumented one.  The end result will be a Python binary
-that is optimized; suitable for distribution or production installation.
-
-
-Link Time Optimization
-^^^^^^^^^^^^^^^^^^^^^^
-
-Enabled via configure's ``--with-lto`` flag.  LTO takes advantage of the
-ability of recent compiler toolchains to optimize across the otherwise
-arbitrary ``.o`` file boundary when building final executables or shared
-libraries for additional performance gains.
-
-
-What's New
-----------
-
-We have a comprehensive overview of the changes in the `What's New in Python
-3.7 <https://docs.python.org/3.7/whatsnew/3.7.html>`_ document.  For a more
-detailed change log, read `Misc/NEWS
-<https://github.com/python/cpython/blob/3.7/Misc/NEWS.d>`_, but a full
-accounting of changes can only be gleaned from the `commit history
-<https://github.com/python/cpython/commits/3.7>`_.
-
-If you want to install multiple versions of Python see the section below
-entitled "Installing multiple versions".
-
-
-Documentation
--------------
-
-`Documentation for Python 3.7 <https://docs.python.org/3.7/>`_ is online,
-updated daily.
-
-It can also be downloaded in many formats for faster access.  The documentation
-is downloadable in HTML, PDF, and reStructuredText formats; the latter version
-is primarily for documentation authors, translators, and people with special
-formatting requirements.
-
-For information about building Python's documentation, refer to `Doc/README.rst
-<https://github.com/python/cpython/blob/3.7/Doc/README.rst>`_.
-
-
-Converting From Python 2.x to 3.x
----------------------------------
-
-Significant backward incompatible changes were made for the release of Python
-3.0, which may cause programs written for Python 2 to fail when run with Python
-3.  For more information about porting your code from Python 2 to Python 3, see
-the `Porting HOWTO <https://docs.python.org/3/howto/pyporting.html>`_.
-
-
-Testing
--------
-
-To test the interpreter, type ``make test`` in the top-level directory.  The
-test set produces some output.  You can generally ignore the messages about
-skipped tests due to optional features which can't be imported.  If a message
-is printed about a failed test or a traceback or core dump is produced,
-something is wrong.
-
-By default, tests are prevented from overusing resources like disk space and
-memory.  To enable these tests, run ``make testall``.
-
-If any tests fail, you can re-run the failing test(s) in verbose mode.  For
-example, if ``test_os`` and ``test_gdb`` failed, you can run::
-
-    make test TESTOPTS="-v test_os test_gdb"
-
-If the failure persists and appears to be a problem with Python rather than
-your environment, you can `file a bug report <https://bugs.python.org>`_ and
-include relevant output from that command to show the issue.
-
-See `Running & Writing Tests <https://devguide.python.org/runtests/>`_
-for more on running tests.
-
-Installing multiple versions
-----------------------------
-
-On Unix and Mac systems if you intend to install multiple versions of Python
-using the same installation prefix (``--prefix`` argument to the configure
-script) you must take care that your primary python executable is not
-overwritten by the installation of a different version.  All files and
-directories installed using ``make altinstall`` contain the major and minor
-version and can thus live side-by-side.  ``make install`` also creates
-``${prefix}/bin/python3`` which refers to ``${prefix}/bin/pythonX.Y``.  If you
-intend to install multiple versions using the same prefix you must decide which
-version (if any) is your "primary" version.  Install that version using ``make
-install``.  Install all other versions using ``make altinstall``.
-
-For example, if you want to install Python 2.7, 3.6, and 3.7 with 3.7 being the
-primary version, you would execute ``make install`` in your 3.7 build directory
-and ``make altinstall`` in the others.
-
-
-Issue Tracker and Mailing List
-------------------------------
-
-Bug reports are welcome!  You can use the `issue tracker
-<https://bugs.python.org>`_ to report bugs, and/or submit pull requests `on
-GitHub <https://github.com/python/cpython>`_.
-
-You can also follow development discussion on the `python-dev mailing list
-<https://mail.python.org/mailman/listinfo/python-dev/>`_.
-
-
-Proposals for enhancement
--------------------------
-
-If you have a proposal to change Python, you may want to send an email to the
-comp.lang.python or `python-ideas`_ mailing lists for initial feedback.  A
-Python Enhancement Proposal (PEP) may be submitted if your idea gains ground.
-All current PEPs, as well as guidelines for submitting a new PEP, are listed at
-`python.org/dev/peps/ <https://www.python.org/dev/peps/>`_.
-
-.. _python-ideas: https://mail.python.org/mailman/listinfo/python-ideas/
-
-
-Release Schedule
-----------------
-
-See :pep:`537` for Python 3.7 release details.
-
-
-Copyright and License Information
----------------------------------
-
-Copyright (c) 2001-2020 Python Software Foundation.  All rights reserved.
-
-Copyright (c) 2000 BeOpen.com.  All rights reserved.
-
-Copyright (c) 1995-2001 Corporation for National Research Initiatives.  All
-rights reserved.
-
-Copyright (c) 1991-1995 Stichting Mathematisch Centrum.  All rights reserved.
-
-See the file "LICENSE" for information on the history of this software, terms &
-conditions for usage, and a DISCLAIMER OF ALL WARRANTIES.
-
-This Python distribution contains *no* GNU General Public License (GPL) code,
-so it may be used in proprietary projects.  There are interfaces to some GNU
-code but these are entirely optional.
-
-All trademarks referenced herein are property of their respective holders.
+Python 3.7.9 源码学习
+
+目录介绍
+Doc
+官方文档的源码，也就是 http://docs.python.org/ 中的文档内容。参考如何构建文档
+
+Grammar
+用来放置 Python 的 EBNF 语法文件
+
+Include
+放置编译所需的全部头文件
+
+Lib
+标准库中的 Python 实现部分
+
+
+Mac
+Mac平台特定代码（比如 构建 OS X 的 IDLE 应用）
+
+Misc
+无法归类到其它地方的东西，通常是不同类型的特定开发者文档
+
+Modules
+标准库（还包括一些其它代码）中需要 C 实现的部分
+os、math、random、io、sys、socket、re、opcode、gc、hashlib、ssl、time
+
+Objects
+所有内置类型的源码
+内置类型有数字、序列、映射、类、实例和异常
+数字（整数、浮点数、复数）
+序列（列表、元组、range对象、字符串、字节串）
+集合、字典
+布尔值（True或False）
+比较运算符
+逻辑检测
+迭代器
+上下文管理器
+模块
+类和实例
+方法
+函数
+代码对象
+类型对象
+空对象
+省略符对象
+未实现对象
+内部对象
+
+PC
+Windows 平台特定代码
+
+PCbuild
+python.org 提供的 Windows 新版 MSVC 安装程序的构建文件
+
+Parser
+解析器相关代码，AST 节点的定义也在这里
+
+Programs
+可执行 C 程序的源码，包括 CPython 解释器的主函数（3.5版之前放在 Modules 目录）
+
+Python
+用来构建核心 CPython 运行时的代码，包括编译器、eval 循环和各种内置的模块。
+
+Tools
+用来维护 Python 的各种工具
