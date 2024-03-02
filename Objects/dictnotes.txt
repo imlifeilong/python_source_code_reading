@@ -1,0 +1,269 @@
+NOTES ON DICTIONARIES
+================================
+
+Principal Use Cases for Dictionaries
+------------------------------------
+
+Passing keyword arguments
+    Typically, one read and one write for 1 to 3 elements.
+    Occurs frequently in normal python code.
+
+Class method lookup
+    Dictionaries vary in size with 8 to 16 elements being common.
+    Usually written once with many lookups.
+    When base classes are used, there are many failed lookups
+        followed by a lookup in a base class.
+
+Instance attribute lookup and Global variables
+    Dictionaries vary in size.  4 to 10 elements are common.
+    Both reads and writes are common.
+
+Builtins
+    Frequent reads.  Almost never written.
+    About 150 interned strings (as of Py3.3).
+    A few keys are accessed much more frequently than others.
+
+Uniquification
+    Dictionaries of any size.  Bulk of work is in creation.
+    Repeated writes to a smaller set of keys.
+    Single read of each key.
+    Some use cases have two consecutive accesses to the same key.
+
+    * Removing duplicates from a sequence.
+        dict.fromkeys(seqn).keys()
+
+    * Counting elements in a sequence.
+        for e in seqn:
+          d[e] = d.get(e,0) + 1
+
+    * Accumulating references in a dictionary of lists:
+
+        for pagenumber, page in enumerate(pages):
+          for word in page:
+            d.setdefault(word, []).append(pagenumber)
+
+    Note, the second example is a use case characterized by a get and set
+    to the same key.  There are similar use cases with a __contains__
+    followed by a get, set, or del to the same key.  Part of the
+    justification for d.setdefault is combining the two lookups into one.
+
+Membership Testing
+    Dictionaries of any size.  Created once and then rarely changes.
+    Single write to each key.
+    Many calls to __contains__() or has_key().
+    Similar access patterns occur with replacement dictionaries
+        such as with the % formatting operator.
+
+Dynamic Mappings
+    Characterized by deletions interspersed with adds and replacements.
+    Performance benefits greatly from the re-use of dummy entries.
+
+Data Layout
+-----------
+
+Dictionaries are composed of 3 components:
+The dictobject struct itself
+A dict-keys object (keys & hashes)
+A values array
+
+
+Tunable Dictionary Parameters
+-----------------------------
+
+See comments for PyDict_MINSIZE_SPLIT, PyDict_MINSIZE_COMBINED,
+USABLE_FRACTION and GROWTH_RATE in dictobject.c
+
+Tune-ups should be measured across a broad range of applications and
+use cases.  A change to any parameter will help in some situations and
+hurt in others.  The key is to find settings that help the most common
+cases and do the least damage to the less common cases.  Results will
+vary dramatically depending on the exact number of keys, whether the
+keys are all strings, whether reads or writes dominate, the exact
+hash values of the keys (some sets of values have fewer collisions than
+others).  Any one test or benchmark is likely to prove misleading.
+
+While making a dictionary more sparse reduces collisions, it impairs
+iteration and key listing.  Those methods loop over every potential
+entry.  Doubling the size of dictionary results in twice as many
+non-overlapping memory accesses for keys(), items(), values(),
+__iter__(), iterkeys(), iteritems(), itervalues(), and update().
+Also, every dictionary iterates at least twice, once for the memset()
+when it is created and once by dealloc().
+
+Dictionary operations involving only a single key can be O(1) unless
+resizing is possible.  By checking for a resize only when the
+dictionary can grow (and may *require* resizing), other operations
+remain O(1), and the odds of resize thrashing or memory fragmentation
+are reduced. In particular, an algorithm that empties a dictionary
+by repeatedly invoking .pop will see no resizing, which might
+not be necessary at all because the dictionary is eventually
+discarded entirely.
+
+The key differences between this implementation and earlier versions are:
+    1. The table can be split into two parts, the keys and the values.
+
+    2. There is an additional key-value combination: (key, NULL).
+       Unlike (<dummy>, NULL) which represents a deleted value, (key, NULL)
+       represented a yet to be inserted value. This combination can only occur
+       when the table is split.
+
+    3. No small table embedded in the dict,
+       as this would make sharing of key-tables impossible.
+
+
+These changes have the following consequences.
+   1. General dictionaries are slightly larger.
+
+   2. All object dictionaries of a single class can share a single key-table,
+      saving about 60% memory for such cases.
+
+Results of Cache Locality Experiments
+--------------------------------------
+
+Experiments on an earlier design of dictionary, in which all tables were
+combined, showed the following:
+
+  When an entry is retrieved from memory, several adjacent entries are also
+  retrieved into a cache line.  Since accessing items in cache is *much*
+  cheaper than a cache miss, an enticing idea is to probe the adjacent
+  entries as a first step in collision resolution.  Unfortunately, the
+  introduction of any regularity into collision searches results in more
+  collisions than the current random chaining approach.
+
+  Exploiting cache locality at the expense of additional collisions fails
+  to payoff when the entries are already loaded in cache (the expense
+  is paid with no compensating benefit).  This occurs in small dictionaries
+  where the whole dictionary fits into a pair of cache lines.  It also
+  occurs frequently in large dictionaries which have a common access pattern
+  where some keys are accessed much more frequently than others.  The
+  more popular entries *and* their collision chains tend to remain in cache.
+
+  To exploit cache locality, change the collision resolution section
+  in lookdict() and lookdict_string().  Set i^=1 at the top of the
+  loop and move the  i = (i << 2) + i + perturb + 1 to an unrolled
+  version of the loop.
+
+For split tables, the above will apply to the keys, but the value will
+always be in a different cache line from the key.
+
+
+字典更紧凑，迭代速度更快
+The current memory layout for dictionaries is
+unnecessarily inefficient.  It has a sparse table of
+24-byte entries containing the hash value, key pointer,
+and value pointer.
+当前字典的内存布局效率低下，没有必要。
+它有一个 24 字节条目的稀疏表，其中包含哈希值、键指针和值指针。
+
+Instead, the 24-byte entries should be stored in a
+dense table referenced by a sparse table of indices.
+相反，24 字节条目应存储在由稀疏索引表引用的密集表中。
+
+For example, the dictionary:
+以字典为例：
+
+d = {'timmy': 'red', 'barry': 'green', 'guido': 'blue'}
+
+is currently stored as:
+当前存储为：
+
+entries = [['--', '--', '--'],
+           [-8522787127447073495, 'barry', 'green'],
+           ['--', '--', '--'],
+           ['--', '--', '--'],
+           ['--', '--', '--'],
+           [-9092791511155847987, 'timmy', 'red'],
+           ['--', '--', '--'],
+           [-6480567542315338377, 'guido', 'blue']]
+
+Instead, the data should be organized as follows:
+相反，数据应按如下方式组织：
+
+indices =  [None, 1, None, None, None, 0, None, 2]
+entries =  [[-9092791511155847987, 'timmy', 'red'],
+            [-8522787127447073495, 'barry', 'green'],
+            [-6480567542315338377, 'guido', 'blue']]
+
+Only the data layout needs to change.  The hash table
+algorithms would stay the same.  All of the current
+optimizations would be kept, including key-sharing
+dicts and custom lookup functions for string-only
+dicts.  There is no change to the hash functions, the
+table search order, or collision statistics.
+
+只需要更改数据布局。哈希表算法将保持不变。
+所有当前的优化都将保留，包括密钥共享字典和仅字符串字典的自定义查找函数。
+哈希函数、表搜索顺序或冲突统计信息没有变化。
+
+The memory savings are significant (from 30% to 95%
+compression depending on the how full the table is).
+Small dicts (size 0, 1, or 2) get the most benefit.
+内存节省非常显着（压缩从 30% 到 95%，具体取决于表的填充程度）。
+小字典（大小 0、1 或 2）获益最多。
+
+For a sparse table of size t with n entries, the sizes are:
+对于大小为 t、有 n 个条目的稀疏表，大小为：
+
+curr_size = 24 * t
+new_size = 24 * n + sizeof(index) * t
+
+In the above timmy/barry/guido example, the current
+size is 192 bytes (eight 24-byte entries) and the new
+size is 80 bytes (three 24-byte entries plus eight
+1-byte indices).  That gives 58% compression.
+在上面的 timmy/barry/guido 示例中，当前大小为 192 字节（8 个 24 字节条目），
+新大小为 80 字节（3 个 24 字节条目加上 8 个 1 字节索引）。
+这提供了 58% 的压缩。
+
+
+Note, the sizeof(index) can be as small as a single
+byte for small dicts, two bytes for bigger dicts and
+up to sizeof(Py_ssize_t) for huge dict.
+请注意，对于小字典，sizeof(index) 可以小到一个字节，
+对于较大字典，sizeof(index) 可以小到两个字节，对于大字典，
+sizeof(index) 可以小到 sizeof(Py_ssize_t)。
+
+
+In addition to space savings, the new memory layout
+makes iteration faster.  Currently, keys(), values, and
+items() loop over the sparse table, skipping-over free
+slots in the hash table.  Now, keys/values/items can
+loop directly over the dense table, using fewer memory
+accesses.
+除了节省空间之外，新的内存布局还使迭代速度更快。
+目前，keys()、values 和 items() 在稀疏表上循环，跳过哈希表中的空闲槽。
+现在，键/值/项目可以直接在密集表上循环，使用更少的内存访问。
+
+Another benefit is that resizing is faster and 
+touches fewer pieces of memory.  Currently, every
+hash/key/value entry is moved or copied during a
+resize.  In the new layout, only the indices are
+updated.  For the most part, the hash/key/value entries
+never move (except for an occasional swap to fill a
+hole left by a deletion).
+另一个好处是调整大小速度更快并且占用的内存更少。
+目前，每个哈希/键/值条目在调整大小期间都会被移动或复制。
+在新布局中，仅更新索引。
+在大多数情况下，哈希/键/值条目永远不会移动（除了偶尔交换以填补删除留下的空洞）。
+
+With the reduced memory footprint, we can also expect
+better cache utilization.
+随着内存占用的减少，我们还可以期望更好的缓存利用率。
+
+For those wanting to experiment with the design,
+there is a pure Python proof-of-concept here:
+对于那些想要尝试该设计的人，这里有一个纯 Python 概念验证：
+
+   http://code.activestate.com/recipes/578375
+
+YMMV: Keep in mind that the above size statics assume a
+build with 64-bit Py_ssize_t and 64-bit pointers.  The
+space savings percentages are a bit different on other
+builds.  Also, note that in many applications, the size
+of the data dominates the size of the container (i.e.
+the weight of a bucket of water is mostly the water,
+not the bucket).
+YMMV：请记住，上述大小静态假设使用 64 位 Py_ssize_t 和 64 位指针进行构建。
+其他版本的空间节省百分比略有不同。
+另请注意，在许多应用中，数据的大小决定了容器的大小
+（即一桶水的重量主要是水的重量，而不是水桶的重量）。
