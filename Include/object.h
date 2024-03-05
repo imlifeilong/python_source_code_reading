@@ -5,7 +5,7 @@ extern "C" {
 #endif
 
 
-/* Object and type object interface */
+/* Object and type object interface 对象和类型对象接口*/
 
 /*
 Objects are structures allocated on the heap.  Special rules apply to
@@ -15,11 +15,16 @@ accessed through special macros and functions only.  (Type objects are
 exceptions to the first rule; the standard types are represented by
 statically initialized type objects, although work on type/class unification
 for Python 2.2 made it possible to have heap-allocated type objects too).
+对象是分配在堆上的结构。特殊规则适用于对象的使用，以确保它们被正确地垃圾收集。
+对象永远不会静态分配或在栈上分配； 它们只能通过特殊的宏和函数来访问。 （类型对象是第一条规则的例外；标准类型由静态初始化的类型对象，
+尽管 Python 2.2 的类型/类统一工作也使得拥有堆分配的类型对象成为可能）。
 
 An object has a 'reference count' that is increased or decreased when a
 pointer to the object is copied or deleted; when the reference count
 reaches zero there are no references to the object left and it can be
 removed from the heap.
+对象有一个“引用计数”，当复制或删除指向该对象的指针时，该引用计数会增加或减少；
+当引用计数达到零时，不再有对该对象的引用，可以将其从堆中删除。
 
 An object has a 'type' that determines what it represents and what kind
 of data it contains.  An object's type is fixed when it is created.
@@ -27,6 +32,11 @@ Types themselves are represented as objects; an object contains a
 pointer to the corresponding type object.  The type itself has a type
 pointer pointing to the object representing the type 'type', which
 contains a pointer to itself!.
+对象有一个“类型”，它决定了它代表什么以及它包含什么类型的数据。 
+对象的类型在创建时就已确定。
+类型本身被表示为对象； 一个对象包含一个指向相应类型对象的指针。
+该类型本身有一个类型指针，指向表示类型“type”的对象，
+该对象包含一个指向其自身的指针！
 
 Objects do not float around in memory; once allocated an object keeps
 the same size and address.  Objects that must hold variable-size data
@@ -36,6 +46,11 @@ after allocation.  (These restrictions are made so a reference to an
 object can be simply a pointer -- moving an object would require
 updating all the pointers, and changing an object's size would require
 moving it if there was another object right next to it.)
+对象不会在内存中浮动； 一旦分配，对象就会保持相同的大小和地址。
+必须保存可变大小数据的对象可以包含指向对象的可变大小部分的指针。
+并非所有同一类型的对象都具有相同的大小； 但分配后大小不能改变。
+（做出这些限制是为了使对对象的引用可以只是一个指针——移动对象需要更新所有指针，
+并且如果对象旁边有另一个对象，则更改对象的大小将需要移动它。）
 
 Objects are always accessed through pointers of the type 'PyObject *'.
 The type 'PyObject' is a structure that only contains the reference count
@@ -46,12 +61,20 @@ with the reference count and type fields; the macro PyObject_HEAD should be
 used for this (to accommodate for future changes).  The implementation
 of a particular object type can cast the object pointer to the proper
 type and back.
+对象始终通过“PyObject *”类型的指针访问。
+类型“PyObject”是一个仅包含引用计数和类型指针的结构。
+为对象分配的实际内存包含其他数据，
+只有在将指针转换为指向更长结构类型的指针后才能访问这些数据。
+这个较长的类型必须以引用计数和类型字段开始； 
+宏 PyObject_HEAD 应该用于此目的（以适应未来的更改）。
+特定对象类型的实现可以将对象指针转换为正确的类型并返回。
 
 A standard interface exists for objects that contain an array of items
 whose size is determined when the object is allocated.
+包含项目数组的对象存在一个标准接口，这些项目的大小在分配对象时确定。
 */
 
-/* Py_DEBUG implies Py_TRACE_REFS. */
+/* Py_DEBUG implies 意味着  Py_TRACE_REFS. */
 #if defined(Py_DEBUG) && !defined(Py_TRACE_REFS)
 #define Py_TRACE_REFS
 #endif
@@ -68,6 +91,7 @@ whose size is determined when the object is allocated.
 
 #ifdef Py_TRACE_REFS
 /* Define pointers to support a doubly-linked list of all live heap objects. */
+/* 定义指针以支持所有活动堆对象的双向链表。 */
 #define _PyObject_HEAD_EXTRA            \
     struct _object *_ob_next;           \
     struct _object *_ob_prev;
@@ -80,6 +104,7 @@ whose size is determined when the object is allocated.
 #endif
 
 /* PyObject_HEAD defines the initial segment of every PyObject. */
+/* PyObject_HEAD 定义了每个 PyObject 的初始段。 */
 #define PyObject_HEAD                   PyObject ob_base;
 
 #define PyObject_HEAD_INIT(type)        \
@@ -94,6 +119,10 @@ whose size is determined when the object is allocated.
  * element, but enough space is malloc'ed so that the array actually
  * has room for ob_size elements.  Note that ob_size is an element count,
  * not necessarily a byte count.
+PyObject_VAR_HEAD 定义所有可变大小容器对象的初始段。
+它们以具有 1 个元素的数组声明结束，但已分配了足够的空间，
+以便数组实际上有空间容纳 ob_size 元素。
+请注意，ob_size 是元素计数，不一定是字节计数。
  */
 #define PyObject_VAR_HEAD      PyVarObject ob_base;
 #define Py_INVALID_SIZE (Py_ssize_t)-1
@@ -102,21 +131,32 @@ whose size is determined when the object is allocated.
  * a Python object can be cast to a PyObject*.  This is inheritance built
  * by hand.  Similarly every pointer to a variable-size Python object can,
  * in addition, be cast to PyVarObject*.
+虽然没有任何东西被声明为 PyObject，但是指向 Python 对象的每个指针都可以被转换为 PyObject*。
+这是手动构建的继承。类似地，除了指向可变大小的 Python 对象的指针外，每个指针还可以被转换为 PyVarObject*。
  */
+
 typedef struct _object {
     _PyObject_HEAD_EXTRA
-    Py_ssize_t ob_refcnt;
-    struct _typeobject *ob_type;
+    Py_ssize_t ob_refcnt;           /*引用计数器*/
+    struct _typeobject *ob_type;    /*类型指针*/
 } PyObject;
+/*
+Py_ssize_t 表示大小或索引。它在不同的平台上可以是不同的整数类型，
+例如在 32 位系统上可能是 int 类型，在 64 位系统上可能是 long 类型
+
+当有新的引用指向对象时，该计数会增加；当引用消失时，该计数会减少。
+当引用计数为零时，对象将被自动销毁以释放内存
+Python 中的每个对象都有一个与之关联的类型对象，该类型对象描述了对象的行为和属性。
+*/
 
 typedef struct {
     PyObject ob_base;
-    Py_ssize_t ob_size; /* Number of items in variable part */
-} PyVarObject;
+    Py_ssize_t ob_size; /* Number of items in variable part 可变部分的项目数 */
+} PyVarObject; // 可变对象
 
-#define Py_REFCNT(ob)           (((PyObject*)(ob))->ob_refcnt)
-#define Py_TYPE(ob)             (((PyObject*)(ob))->ob_type)
-#define Py_SIZE(ob)             (((PyVarObject*)(ob))->ob_size)
+#define Py_REFCNT(ob)           (((PyObject*)(ob))->ob_refcnt)  // 获取对象的引用计数
+#define Py_TYPE(ob)             (((PyObject*)(ob))->ob_type)    // 获取对象的类型
+#define Py_SIZE(ob)             (((PyVarObject*)(ob))->ob_size) // 获取对象的长度
 
 #ifndef Py_LIMITED_API
 /********************* String Literals ****************************************/
@@ -164,6 +204,14 @@ reach zero (e.g., for statically allocated type objects).
 
 NB: the methods for certain type groups are now contained in separate
 method blocks.
+
+类型对象包含一个字符串，其中包含类型名称（在调试时有所帮助）、分配参数
+（参见 PyObject_New() 和 PyObject_NewVar()）以及用于访问该类型对象的方法。
+方法是可选的，一个空指针表示该类型的特定访问方式不可用。
+Py_DECREF() 宏使用 tp_dealloc 方法而不检查空指针；它应该始终被实现，
+除非实现可以保证引用计数永远不会达到零（例如，对于静态分配的类型对象）。
+
+注：某些类型组的方法现在包含在单独的方法块中。
 */
 
 typedef PyObject * (*unaryfunc)(PyObject *);
@@ -434,6 +482,25 @@ typedef struct _typeobject {
 #endif
 } PyTypeObject;
 #endif
+/*
+PyObject_VAR_HEAD：宏定义，用于支持可变大小对象的头部。
+const char *tp_name：指向类型名称的指针，用于标识该类型对象。
+Py_ssize_t tp_basicsize：类型对象的基本大小，即不包括任何额外数据的大小。
+Py_ssize_t tp_itemsize：对于可变大小对象，表示每个元素的大小。
+destructor tp_dealloc：指向对象销毁函数的指针，用于释放对象的内存。
+printfunc tp_print：指向对象打印函数的指针，用于打印对象的表示形式。
+getattrfunc tp_getattr：指向对象获取属性函数的指针，用于获取对象的属性。
+setattrfunc tp_setattr：指向对象设置属性函数的指针，用于设置对象的属性。
+Py_hash_t tp_hash：指向对象哈希函数的指针，用于计算对象的哈希值。
+richcmpfunc tp_richcompare：指向对象比较函数的指针，用于对象之间的比较。
+PyMethodDef *tp_methods：指向方法列表的指针，其中包含类型对象的方法。
+struct PyMemberDef *tp_members：指向成员列表的指针，其中包含类型对象的成员。
+getattrofunc tp_getattro：指向获取属性函数的指针，用于获取对象的属性。
+setattrofunc tp_setattro：指向设置属性函数的指针，用于设置对象的属性。
+PyBufferProcs *tp_as_buffer：指向缓冲区处理函数的指针，用于处理缓冲区操作。
+long tp_flags：类型对象的标志，用于标识对象的属性和行为。
+const char *tp_doc：指向类型对象文档字符串的指针，用于描述该类型的用途和使用方法。
+*/
 
 typedef struct{
     int slot;    /* slot id, see below */

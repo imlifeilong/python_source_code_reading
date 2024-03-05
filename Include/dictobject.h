@@ -6,11 +6,15 @@ extern "C" {
 
 
 /* Dictionary object type -- mapping from hashable object to object */
+/* 字典对象类型 -- 从可哈希对象到对象的映射 */
 
 /* The distribution includes a separate file, Objects/dictnotes.txt,
    describing explorations into dictionary design and optimization.
    It covers typical dictionary use patterns, the parameters for
    tuning dictionaries, and several ideas for possible optimizations.
+   这个发行版包括一个单独的文件，Objects/dictnotes.txt，
+   描述了对字典设计和优化的探索。
+   它涵盖了典型的字典使用模式，调整字典的参数以及几种可能的优化方法。
 */
 
 #ifndef Py_LIMITED_API
@@ -19,24 +23,30 @@ typedef struct _dictkeysobject PyDictKeysObject;
 
 /* The ma_values pointer is NULL for a combined table
  * or points to an array of PyObject* for a split table
+ 如果ma_values指针为NULL，则为组合表，或者指向PyObject*数组以用于分离表
  */
 typedef struct {
     PyObject_HEAD
 
     /* Number of items in the dictionary */
+    /* 字典中的项目数量  */
     Py_ssize_t ma_used;
 
     /* Dictionary version: globally unique, value change each time
-       the dictionary is modified */
+       the dictionary is modified 
+    字典版本：全局唯一，每次修改字典时值会改变
+    */
     uint64_t ma_version_tag;
 
     PyDictKeysObject *ma_keys;
 
     /* If ma_values is NULL, the table is "combined": keys and values
        are stored in ma_keys.
-
+       如果ma_values为NULL，则表为“组合”：键和值都存储在ma_keys中。
        If ma_values is not NULL, the table is splitted:
-       keys are stored in ma_keys and values are stored in ma_values */
+       keys are stored in ma_keys and values are stored in ma_values 
+       如果ma_values不为NULL，则表被分割：键存储在ma_keys中，值存储在ma_values中
+    */
     PyObject **ma_values;
 } PyDictObject;
 
@@ -62,6 +72,7 @@ PyAPI_DATA(PyTypeObject) PyDictValues_Type;
 #define PyDictItems_Check(op) PyObject_TypeCheck(op, &PyDictItems_Type)
 #define PyDictValues_Check(op) PyObject_TypeCheck(op, &PyDictValues_Type)
 /* This excludes Values, since they are not sets. */
+/* 这排除了Values，因为它们不是集合。 */
 # define PyDictViewSet_Check(op) \
     (PyDictKeys_Check(op) || PyDictItems_Check(op))
 
@@ -109,6 +120,7 @@ PyAPI_FUNC(PyObject *) PyDict_Copy(PyObject *mp);
 PyAPI_FUNC(int) PyDict_Contains(PyObject *mp, PyObject *key);
 #ifndef Py_LIMITED_API
 /* Get the number of items of a dictionary. */
+/* 获取字典中的项目数量 */
 #define PyDict_GET_SIZE(mp)  (assert(PyDict_Check(mp)),((PyDictObject *)mp)->ma_used)
 PyAPI_FUNC(int) _PyDict_Contains(PyObject *mp, PyObject *key, Py_hash_t hash);
 PyAPI_FUNC(PyObject *) _PyDict_NewPresized(Py_ssize_t minused);
@@ -125,12 +137,17 @@ PyAPI_FUNC(int) PyDict_ClearFreeList(void);
 #endif
 
 /* PyDict_Update(mp, other) is equivalent to PyDict_Merge(mp, other, 1). */
+/* PyDict_Update(mp, other) 等同于 PyDict_Merge(mp, other, 1)。 */
 PyAPI_FUNC(int) PyDict_Update(PyObject *mp, PyObject *other);
 
 /* PyDict_Merge updates/merges from a mapping object (an object that
    supports PyMapping_Keys() and PyObject_GetItem()).  If override is true,
    the last occurrence of a key wins, else the first.  The Python
    dict.update(other) is equivalent to PyDict_Merge(dict, other, 1).
+   PyDict_Merge 从支持 PyMapping_Keys() 和 PyObject_GetItem() 
+   的映射对象（即支持字典操作的对象）中更新/合并。
+   如果override为真，则最后出现的键获胜，否则第一个。
+   Python 的 dict.update(other) 等同于 PyDict_Merge(dict, other, 1)。
 */
 PyAPI_FUNC(int) PyDict_Merge(PyObject *mp,
                                    PyObject *other,
@@ -141,6 +158,10 @@ PyAPI_FUNC(int) PyDict_Merge(PyObject *mp,
    the first occurrence of a key wins, if override is 1, the last occurrence
    of a key wins, if override is 2, a KeyError with conflicting key as
    argument is raised.
+   类似于 PyDict_Merge，但 override 可以是 0、1 或 2。
+   如果 override 为 0，则第一个键获胜；
+   如果 override 为 1，则最后一个键获胜；
+   如果 override 为 2，则引发具有冲突键的 KeyError。
 */
 PyAPI_FUNC(int) _PyDict_MergeEx(PyObject *mp, PyObject *other, int override);
 PyAPI_FUNC(PyObject *) _PyDictView_Intersect(PyObject* self, PyObject *other);
@@ -150,6 +171,10 @@ PyAPI_FUNC(PyObject *) _PyDictView_Intersect(PyObject* self, PyObject *other);
    iterable objects of length 2.  If override is true, the last occurrence
    of a key wins, else the first.  The Python dict constructor dict(seq2)
    is equivalent to dict={}; PyDict_MergeFromSeq(dict, seq2, 1).
+   
+    PyDict_MergeFromSeq2 从产生长度为 2 的可迭代对象更新/合并。
+    如果 override 为真，则最后出现的键获胜，否则第一个。
+    Python 的 dict 构造函数 dict(seq2) 等同于 dict={}; PyDict_MergeFromSeq(dict, seq2, 1)。
 */
 PyAPI_FUNC(int) PyDict_MergeFromSeq2(PyObject *d,
                                            PyObject *seq2,

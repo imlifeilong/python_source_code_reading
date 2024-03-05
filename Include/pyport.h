@@ -79,6 +79,9 @@ typedef intptr_t        Py_intptr_t;
 /* Py_ssize_t is a signed integral type such that sizeof(Py_ssize_t) ==
  * sizeof(size_t).  C99 doesn't define such a thing directly (size_t is an
  * unsigned integral type).  See PEP 353 for details.
+ 
+Py_ssize_t 是一个有符号整数类型，满足 sizeof(Py_ssize_t) == sizeof(size_t) 的条件。
+C99 并没有直接定义这样的类型（size_t 是一个无符号整数类型）。有关详细信息，请参阅 PEP 353。
  */
 #ifdef HAVE_SSIZE_T
 typedef ssize_t         Py_ssize_t;
