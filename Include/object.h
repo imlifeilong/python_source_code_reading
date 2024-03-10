@@ -107,10 +107,11 @@ whose size is determined when the object is allocated.
 /* PyObject_HEAD 定义了每个 PyObject 的初始段。 */
 #define PyObject_HEAD                   PyObject ob_base;
 
+// 定义结构体 PyObject 的初始值 引用计数为1， 类型为传参的type， 
 #define PyObject_HEAD_INIT(type)        \
     { _PyObject_EXTRA_INIT              \
     1, type },
-
+// 定义结构体 PyVarObject 的初始值，引用计数为1， 类型为传参的type，元素的个数为传参size
 #define PyVarObject_HEAD_INIT(type, size)       \
     { PyObject_HEAD_INIT(type) size },
 
@@ -134,13 +135,20 @@ PyObject_VAR_HEAD 定义所有可变大小容器对象的初始段。
 虽然没有任何东西被声明为 PyObject，但是指向 Python 对象的每个指针都可以被转换为 PyObject*。
 这是手动构建的继承。类似地，除了指向可变大小的 Python 对象的指针外，每个指针还可以被转换为 PyVarObject*。
  */
-
+// typedef 给已有的数据类型创建别名
 typedef struct _object {
     _PyObject_HEAD_EXTRA
-    Py_ssize_t ob_refcnt;           /*引用计数器*/
-    struct _typeobject *ob_type;    /*类型指针*/
-} PyObject;
+    /*引用计数，用于垃圾回收*/
+    Py_ssize_t ob_refcnt;           
+    /*
+    指向对象类型的指针，用于标识对象的类型，运行时类型检查和类型特定的操作，
+    每个对象有一个类型对象，定义了该对象的属性、行为、方法等。
+    PyObject 对象到底是什么类型的，只有再调用的时候，通过ob_type来判断，即多态机制
+    */
+    struct _typeobject *ob_type;    
+} PyObject; // 定长对象
 /*
+pyport.h中
 Py_ssize_t 表示大小或索引。它在不同的平台上可以是不同的整数类型，
 例如在 32 位系统上可能是 int 类型，在 64 位系统上可能是 long 类型
 
@@ -152,7 +160,7 @@ Python 中的每个对象都有一个与之关联的类型对象，该类型对�
 typedef struct {
     PyObject ob_base;
     Py_ssize_t ob_size; /* Number of items in variable part 可变部分的项目数 */
-} PyVarObject; // 可变对象
+} PyVarObject; // 变长对象
 
 #define Py_REFCNT(ob)           (((PyObject*)(ob))->ob_refcnt)  // 获取对象的引用计数
 #define Py_TYPE(ob)             (((PyObject*)(ob))->ob_type)    // 获取对象的类型
@@ -388,13 +396,18 @@ typedef int (*initproc)(PyObject *, PyObject *, PyObject *);
 typedef PyObject *(*newfunc)(struct _typeobject *, PyObject *, PyObject *);
 typedef PyObject *(*allocfunc)(struct _typeobject *, Py_ssize_t);
 
+// PyTypeObject 类型对象
 #ifdef Py_LIMITED_API
 typedef struct _typeobject PyTypeObject; /* opaque */
 #else
 typedef struct _typeobject {
-    PyObject_VAR_HEAD
-    const char *tp_name; /* For printing, in format "<module>.<name>" */
-    Py_ssize_t tp_basicsize, tp_itemsize; /* For allocation */
+    /* 
+    类型对象也是可变长的对象，也有对应的类型，
+    也就是说所有的对象都有类型，包括类型对象本身也有类型
+    */
+    PyObject_VAR_HEAD    
+    const char *tp_name; /* 类型名称，主要用于调试查看 For printing, in format "<module>.<name>" */
+    Py_ssize_t tp_basicsize, tp_itemsize; /* 实例的大小，实例的长度 分配内存的大小 For allocation */
 
     /* Methods to implement standard operations */
 
@@ -408,9 +421,9 @@ typedef struct _typeobject {
 
     /* Method suites for standard classes */
 
-    PyNumberMethods *tp_as_number;
-    PySequenceMethods *tp_as_sequence;
-    PyMappingMethods *tp_as_mapping;
+    PyNumberMethods *tp_as_number; // 数字对象的方法
+    PySequenceMethods *tp_as_sequence; // 序列对象的方法
+    PyMappingMethods *tp_as_mapping; // 映射相关的方法
 
     /* More standard operations (here for binary compatibility) */
 
@@ -482,25 +495,7 @@ typedef struct _typeobject {
 #endif
 } PyTypeObject;
 #endif
-/*
-PyObject_VAR_HEAD：宏定义，用于支持可变大小对象的头部。
-const char *tp_name：指向类型名称的指针，用于标识该类型对象。
-Py_ssize_t tp_basicsize：类型对象的基本大小，即不包括任何额外数据的大小。
-Py_ssize_t tp_itemsize：对于可变大小对象，表示每个元素的大小。
-destructor tp_dealloc：指向对象销毁函数的指针，用于释放对象的内存。
-printfunc tp_print：指向对象打印函数的指针，用于打印对象的表示形式。
-getattrfunc tp_getattr：指向对象获取属性函数的指针，用于获取对象的属性。
-setattrfunc tp_setattr：指向对象设置属性函数的指针，用于设置对象的属性。
-Py_hash_t tp_hash：指向对象哈希函数的指针，用于计算对象的哈希值。
-richcmpfunc tp_richcompare：指向对象比较函数的指针，用于对象之间的比较。
-PyMethodDef *tp_methods：指向方法列表的指针，其中包含类型对象的方法。
-struct PyMemberDef *tp_members：指向成员列表的指针，其中包含类型对象的成员。
-getattrofunc tp_getattro：指向获取属性函数的指针，用于获取对象的属性。
-setattrofunc tp_setattro：指向设置属性函数的指针，用于设置对象的属性。
-PyBufferProcs *tp_as_buffer：指向缓冲区处理函数的指针，用于处理缓冲区操作。
-long tp_flags：类型对象的标志，用于标识对象的属性和行为。
-const char *tp_doc：指向类型对象文档字符串的指针，用于描述该类型的用途和使用方法。
-*/
+
 
 typedef struct{
     int slot;    /* slot id, see below */
@@ -842,10 +837,11 @@ PyAPI_FUNC(void) _Py_AddToAllObjects(PyObject *, int force);
 /* Without Py_TRACE_REFS, there's little enough to do that we expand code
  * inline.
  */
+
 #define _Py_NewReference(op) (                          \
     _Py_INC_TPALLOCS(op) _Py_COUNT_ALLOCS_COMMA         \
     _Py_INC_REFTOTAL  _Py_REF_DEBUG_COMMA               \
-    Py_REFCNT(op) = 1)
+    Py_REFCNT(op) = 1)     // 创建新对象的时候，引用计数会被初始化为1                             
 
 #define _Py_ForgetReference(op) _Py_INC_TPFREES(op)
 

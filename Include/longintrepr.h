@@ -40,8 +40,9 @@ extern "C" {
   The values 15 and 30 should fit all of the above requirements, on any
   platform.
 */
-
+// PYLONG_BITS_IN_DIGIT 值为30表示64位系统，值为15表示32位系统
 #if PYLONG_BITS_IN_DIGIT == 30
+// uint32_t 是一个无符号32位整数类型，通常定义在 <stdint.h>（C）或 <cstdint>（C++）头文件中
 typedef uint32_t digit;
 typedef int32_t sdigit; /* signed variant of digit */
 typedef uint64_t twodigits;
@@ -50,7 +51,8 @@ typedef int64_t stwodigits; /* signed variant of twodigits */
 #define _PyLong_DECIMAL_SHIFT   9 /* max(e such that 10**e fits in a digit) */
 #define _PyLong_DECIMAL_BASE    ((digit)1000000000) /* 10 ** DECIMAL_SHIFT */
 #elif PYLONG_BITS_IN_DIGIT == 15
-typedef unsigned short digit;
+// unsigned short 一个16位的无符号整数类型，这意味着它可以表示从0到65535（即2^16 - 1）的整数值
+typedef unsigned short digit; 
 typedef short sdigit; /* signed variant of digit */
 typedef unsigned long twodigits;
 typedef long stwodigits; /* signed variant of twodigits */
@@ -84,6 +86,7 @@ typedef long stwodigits; /* signed variant of twodigits */
 
 struct _longobject {
     PyObject_VAR_HEAD
+    // 定义了一个数组 ob_digit，其类型为 digit（即uint32_t），该数组只有一个元素
     digit ob_digit[1];
 };
 

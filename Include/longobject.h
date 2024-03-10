@@ -6,7 +6,7 @@ extern "C" {
 
 
 /* Long (arbitrary precision) integer object interface */
-
+// PyLongObject 长整数对象 定义在longintrepr.h中
 typedef struct _longobject PyLongObject; /* Revealed in longintrepr.h */
 
 PyAPI_DATA(PyTypeObject) PyLong_Type;
@@ -15,6 +15,7 @@ PyAPI_DATA(PyTypeObject) PyLong_Type;
         PyType_FastSubclass(Py_TYPE(op), Py_TPFLAGS_LONG_SUBCLASS)
 #define PyLong_CheckExact(op) (Py_TYPE(op) == &PyLong_Type)
 
+// 创建PyLongObject的途径
 PyAPI_FUNC(PyObject *) PyLong_FromLong(long);
 PyAPI_FUNC(PyObject *) PyLong_FromUnsignedLong(unsigned long);
 PyAPI_FUNC(PyObject *) PyLong_FromSize_t(size_t);

@@ -38,6 +38,7 @@ PyAPI_FUNC(double) PyFloat_GetMax(void);
 PyAPI_FUNC(double) PyFloat_GetMin(void);
 PyAPI_FUNC(PyObject *) PyFloat_GetInfo(void);
 
+// 创建浮点数的方式
 /* Return Python float from string PyObject. */
 PyAPI_FUNC(PyObject *) PyFloat_FromString(PyObject*);
 

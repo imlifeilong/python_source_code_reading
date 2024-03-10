@@ -3572,9 +3572,14 @@ type_is_gc(PyTypeObject *type)
 {
     return type->tp_flags & Py_TPFLAGS_HEAPTYPE;
 }
-
+// 
 PyTypeObject PyType_Type = {
-    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    /*
+    &PyType_Type: 是指向 PyType_Type 的指针,PyType_Type 是 PyTypeObject 类型的类型对象
+    
+    
+    */
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)      
     "type",                                     /* tp_name */
     sizeof(PyHeapTypeObject),                   /* tp_basicsize */
     sizeof(PyMemberDef),                        /* tp_itemsize */

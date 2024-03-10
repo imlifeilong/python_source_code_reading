@@ -14,7 +14,7 @@
 class int "PyObject *" "&PyLong_Type"
 [clinic start generated code]*/
 /*[clinic end generated code: output=da39a3ee5e6b4b0d input=ec0275e3422a36e3]*/
-
+// 小整数池的范围 [-5, 257)， 可以修改NSMALLPOSINTS 和 NSMALLNEGINTS，重新编译python
 #ifndef NSMALLPOSINTS
 #define NSMALLPOSINTS           257
 #endif
@@ -39,6 +39,7 @@ PyObject *_PyLong_One = NULL;
    can be shared.
    The integers that are preallocated are those in the range
    -NSMALLNEGINTS (inclusive) to NSMALLPOSINTS (not inclusive).
+   小整数池存放在静态数组small_ints中
 */
 static PyLongObject small_ints[NSMALLNEGINTS + NSMALLPOSINTS];
 #ifdef COUNT_ALLOCS
@@ -2895,12 +2896,16 @@ long_dealloc(PyObject *v)
 {
     Py_TYPE(v)->tp_free(v);
 }
-
+// 长整数比较
 static int
 long_compare(PyLongObject *a, PyLongObject *b)
 {
     Py_ssize_t sign;
-
+    /*
+    对于长整数对象，Py_SIZE 返回的是数字中绝对值的位数（二进制位）。
+    注意，这个大小是包括符号位的，所以一个正数和它的负数值会有相同的大小。
+    对于列表、元组或其他序列类型的对象，Py_SIZE 通常返回序列中元素的数量。
+    */ 
     if (Py_SIZE(a) != Py_SIZE(b)) {
         sign = Py_SIZE(a) - Py_SIZE(b);
     }
@@ -2920,10 +2925,15 @@ long_compare(PyLongObject *a, PyLongObject *b)
 }
 
 static PyObject *
+/* 复杂的比较操作
+self    本身 
+other   比较对象
+op      比较操作
+*/
 long_richcompare(PyObject *self, PyObject *other, int op)
 {
     int result;
-    CHECK_BINOP(self, other);
+    CHECK_BINOP(self, other); // 检测 self other 是不是长整数
     if (self == other)
         result = 0;
     else
@@ -5375,22 +5385,22 @@ static PyNumberMethods long_as_number = {
     0,                          /* nb_inplace_true_divide */
     long_long,                  /* nb_index */
 };
-
+// 整数对象的类型
 PyTypeObject PyLong_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     "int",                                      /* tp_name */
     offsetof(PyLongObject, ob_digit),           /* tp_basicsize */
     sizeof(digit),                              /* tp_itemsize */
-    long_dealloc,                               /* tp_dealloc */
+    long_dealloc,                               /* tp_dealloc 析构操作，计数器为0时，清除对象*/
     0,                                          /* tp_print */
     0,                                          /* tp_getattr */
     0,                                          /* tp_setattr */
     0,                                          /* tp_reserved */
     long_to_decimal_string,                     /* tp_repr */
-    &long_as_number,                            /* tp_as_number */
+    &long_as_number,                            /* tp_as_number 数值相关的操作*/
     0,                                          /* tp_as_sequence */
     0,                                          /* tp_as_mapping */
-    (hashfunc)long_hash,                        /* tp_hash */
+    (hashfunc)long_hash,                        /* tp_hash 哈希函数，是可哈希的*/
     0,                                          /* tp_call */
     long_to_decimal_string,                     /* tp_str */
     PyObject_GenericGetAttr,                    /* tp_getattro */
@@ -5401,11 +5411,11 @@ PyTypeObject PyLong_Type = {
     long_doc,                                   /* tp_doc */
     0,                                          /* tp_traverse */
     0,                                          /* tp_clear */
-    long_richcompare,                           /* tp_richcompare */
+    long_richcompare,                           /* tp_richcompare 比较操作*/
     0,                                          /* tp_weaklistoffset */
     0,                                          /* tp_iter */
     0,                                          /* tp_iternext */
-    long_methods,                               /* tp_methods */
+    long_methods,                               /* tp_methods 相关的函数*/
     0,                                          /* tp_members */
     long_getset,                                /* tp_getset */
     0,                                          /* tp_base */
