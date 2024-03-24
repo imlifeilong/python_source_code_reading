@@ -26,6 +26,7 @@ _Py_IDENTIFIER(little);
 _Py_IDENTIFIER(big);
 
 /* convert a PyLong of size 1, 0 or -1 to an sdigit */
+/* 将大小为1,0或-1的PyLong转换为sdigit */
 #define MEDIUM_VALUE(x) (assert(-1 <= Py_SIZE(x) && Py_SIZE(x) <= 1),   \
          Py_SIZE(x) < 0 ? -(sdigit)(x)->ob_digit[0] :   \
              (Py_SIZE(x) == 0 ? (sdigit)0 :                             \
@@ -195,17 +196,25 @@ _PyLong_FromNbInt(PyObject *integral)
 PyLongObject *
 _PyLong_New(Py_ssize_t size)
 {
-    PyLongObject *result;
+    PyLongObject *result; // result 是一个PyLongObject类型的指针
     /* Number of bytes needed is: offsetof(PyLongObject, ob_digit) +
        sizeof(digit)*size.  Previous incarnations of this code used
        sizeof(PyVarObject) instead of the offsetof, but this risks being
        incorrect in the presence of padding between the PyVarObject header
-       and the digits. */
+       and the digits. 
+       所需字节数为offsetof(PyLongObject, ob_digit) + sizeof(digit)*size
+       此代码的先前版本使用sizeof(PyVarObject)而不是offsetof，
+       但在PyVarObject头文件和数字之间存在填充时，这有可能是不正确的。
+       */
     if (size > (Py_ssize_t)MAX_LONG_DIGITS) {
         PyErr_SetString(PyExc_OverflowError,
                         "too many digits in integer");
         return NULL;
     }
+    /* PyObject_MALLOC 通常用于分配小块内存
+    offsetof(PyLongObject, ob_digit) 表示获取 PyLongObject 结构体中 ob_digit 成员相对于结构体起始地址的偏移量
+    申请内存存储PyLongObject结构体和长度为size 数组 ob_digit
+    */
     result = PyObject_MALLOC(offsetof(PyLongObject, ob_digit) +
                              size*sizeof(digit));
     if (!result) {
@@ -2108,16 +2117,17 @@ long_from_binary_base(const char **str, int base, PyLongObject **res)
 
 /* Parses an int from a bytestring. Leading and trailing whitespace will be
  * ignored.
- *
+ * 从字节串解析int。前导和尾随空格将被忽略。
  * If successful, a PyLong object will be returned and 'pend' will be pointing
  * to the first unused byte unless it's NULL.
- *
- * If unsuccessful, NULL will be returned.
+ * 如果成功，将返回一个PyLong对象，并且'pend'将指向第一个未使用的字节，除非它为NULL。
+ * If unsuccessful, NULL will be returned. 如果不成功，则返回NULL。
+ * base 表示进制数，默认是10进制
  */
 PyObject *
 PyLong_FromString(const char *str, char **pend, int base)
 {
-    int sign = 1, error_if_nonzero = 0;
+    int sign = 1, error_if_nonzero = 0; // sign 表示正负
     const char *start, *orig_str = str;
     PyLongObject *z = NULL;
     PyObject *strobj;
@@ -2269,7 +2279,7 @@ digit beyond the first.
 ***/
         twodigits c;           /* current input character */
         Py_ssize_t size_z;
-        Py_ssize_t digits = 0;
+        Py_ssize_t digits = 0; // 大整数 字符串形式的长度 
         int i;
         int convwidth;
         twodigits convmultmax, convmult;
@@ -2284,9 +2294,9 @@ digit beyond the first.
         if (log_base_BASE[base] == 0.0) {
             twodigits convmax = base;
             int i = 1;
-
+            // log_base_BASE[10] = log(10) / log(2**30) ->  0.11073093649624542
             log_base_BASE[base] = (log((double)base) /
-                                   log((double)PyLong_BASE));
+                                   log((double)PyLong_BASE));  
             for (;;) {
                 twodigits next = convmax * base;
                 if (next > PyLong_BASE) {
@@ -2338,15 +2348,15 @@ digit beyond the first.
                             "too many digits in integer");
             return NULL;
         }
-        size_z = (Py_ssize_t)fsize_z;
+        size_z = (Py_ssize_t)fsize_z; // 计算ob_digit数组的长度
         /* Uncomment next line to test exceedingly rare copy code */
         /* size_z = 1; */
         assert(size_z > 0);
-        z = _PyLong_New(size_z);
+        z = _PyLong_New(size_z); // 创建新的长整型对象z
         if (z == NULL) {
             return NULL;
         }
-        Py_SIZE(z) = 0;
+        Py_SIZE(z) = 0; // 将z的ob_size值设置为0
 
         /* `convwidth` consecutive input digits are treated as a single
          * digit in base `convmultmax`.
@@ -2383,12 +2393,13 @@ digit beyond the first.
                 }
             }
 
-            /* Multiply z by convmult, and add c. */
-            pz = z->ob_digit;
-            pzstop = pz + Py_SIZE(z);
+            /* Multiply z by convmult, and add c. 将z乘以卷积，再加上c。*/
+            pz = z->ob_digit; // pz指向ob_digit数组开始的位置
+            // pzstop 为指向 ob_digit 数组的末尾之后的位置。用于迭代或操作整个数字数组时确定边界
+            pzstop = pz + Py_SIZE(z); 
             for (; pz < pzstop; ++pz) {
                 c += (twodigits)*pz * convmult;
-                *pz = (digit)(c & PyLong_MASK);
+                *pz = (digit)(c & PyLong_MASK); // 确保c在PyLong_MASK范围内
                 c >>= PyLong_SHIFT;
             }
             /* carry off the current end? */

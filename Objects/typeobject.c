@@ -3575,7 +3575,7 @@ type_is_gc(PyTypeObject *type)
 // 
 PyTypeObject PyType_Type = {
     /*
-    &PyType_Type: æ˜¯æŒ‡å‘ PyType_Type çš„æŒ‡é’ˆ,PyType_Type æ˜¯ PyTypeObject ç±»å‹çš„ç±»å‹å¯¹è±¡
+    &PyType_Type: ÊÇÖ¸Ïò PyType_Type µÄÖ¸Õë,PyType_Type ÊÇ PyTypeObject ÀàĞÍµÄÀàĞÍ¶ÔÏó
     
     
     */

@@ -18,13 +18,21 @@ class float "PyObject *" "&PyFloat_Type"
 /* Special free list
    free_list is a singly-linked list of available PyFloatObjects, linked
    via abuse of their ob_type members.
+   特殊自由列表free_list是一个由可用PyFloatObjects构成的单链表，
+   通过滥用它们的ob_type成员来进行链接。即：free_list 是一种特殊的内存管理机制，
+   用于管理那些不再被使用但仍然可以被重新利用的 PyFloatObjects 对象。
+   这些对象通过修改它们的 ob_type 成员（通常用于表示对象的类型）来构建成一个单链表，
+   从而实现对象的快速回收和重用。这种做法被称为“滥用”，是因为它改变了 ob_type 的原始用途，
+   但这样做在 Python 的内部实现中是被允许的，并且有助于优化内存管理。
 */
 
 #ifndef PyFloat_MAXFREELIST
-#define PyFloat_MAXFREELIST    100
+#define PyFloat_MAXFREELIST    100  // 限制 free_list 最大数量
 #endif
-static int numfree = 0;
-static PyFloatObject *free_list = NULL;
+static int numfree = 0;             // 记录free_list中可用对象的个数
+// 定义链表，类型为PyFloatObject，ob_type指向的应该是PyFloat_Type，
+// 在链表中对象的ob_type指向的是下一个PyFloatObject
+static PyFloatObject *free_list = NULL; 
 
 double
 PyFloat_GetMax(void)
@@ -114,17 +122,24 @@ PyFloat_GetInfo(void)
 PyObject *
 PyFloat_FromDouble(double fval)
 {
+    // op指向free_list中的第一个PyFloatObject对象
     PyFloatObject *op = free_list;
     if (op != NULL) {
+        // 
+        // 将op对象的ob_type，转为PyFloatObject，当作链表的next指针
+        // op是PyFloatObject，而它的ob_type本应该是PyFloat_Type
         free_list = (PyFloatObject *) Py_TYPE(op);
         numfree--;
     } else {
+        // 新建浮点对象，并且动态申请内存，大小为结构体PyFloatObject
         op = (PyFloatObject*) PyObject_MALLOC(sizeof(PyFloatObject));
         if (!op)
             return PyErr_NoMemory();
     }
     /* Inline PyObject_New */
+    // 初始化 ob_refcnt为1，ob_type为PyFloat_Type
     (void)PyObject_INIT(op, &PyFloat_Type);
+    // 初始化ob_fval为传进来的参数fval
     op->ob_fval = fval;
     return (PyObject *) op;
 }

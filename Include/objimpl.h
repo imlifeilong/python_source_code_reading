@@ -139,9 +139,18 @@ PyAPI_FUNC(PyVarObject *) _PyObject_NewVar(PyTypeObject *, Py_ssize_t);
                 ( (type *) _PyObject_NewVar((typeobj), (n)) )
 
 /* Macros trading binary compatibility for speed. See also pymem.h.
-   Note that these macros expect non-NULL object pointers.*/
+   Note that these macros expect non-NULL object pointers.
+   宏定义二进制兼容性的速度。参见pymeme .h。
+   注意，这些宏需要非null对象指针。
+   */
+// op 实例对象的指针，typeobj 类型对象的指针
+// Py_TYPE(op) = (typeobj) 将op所指对象的类型设置为传参进来的 typeobj
+// _Py_NewReference((PyObject *)(op)) 将op所指对象的引用计数器设置为1
 #define PyObject_INIT(op, typeobj) \
     ( Py_TYPE(op) = (typeobj), _Py_NewReference((PyObject *)(op)), (op) )
+/*
+在PyObject_INIT的基础上，增加初始化op所指的可变对象的ob_size大小为size
+*/
 #define PyObject_INIT_VAR(op, typeobj, size) \
     ( Py_SIZE(op) = (size), PyObject_INIT((op), (typeobj)) )
 

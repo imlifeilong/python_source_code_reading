@@ -496,7 +496,6 @@ typedef struct _typeobject {
 } PyTypeObject;
 #endif
 
-
 typedef struct{
     int slot;    /* slot id, see below */
     void *pfunc; /* function pointer */
@@ -837,7 +836,6 @@ PyAPI_FUNC(void) _Py_AddToAllObjects(PyObject *, int force);
 /* Without Py_TRACE_REFS, there's little enough to do that we expand code
  * inline.
  */
-
 #define _Py_NewReference(op) (                          \
     _Py_INC_TPALLOCS(op) _Py_COUNT_ALLOCS_COMMA         \
     _Py_INC_REFTOTAL  _Py_REF_DEBUG_COMMA               \

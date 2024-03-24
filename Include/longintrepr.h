@@ -43,8 +43,8 @@ extern "C" {
 // PYLONG_BITS_IN_DIGIT 值为30表示64位系统，值为15表示32位系统
 #if PYLONG_BITS_IN_DIGIT == 30
 // uint32_t 是一个无符号32位整数类型，通常定义在 <stdint.h>（C）或 <cstdint>（C++）头文件中
-typedef uint32_t digit;
-typedef int32_t sdigit; /* signed variant of digit */
+typedef uint32_t digit; // 无符号的整数
+typedef int32_t sdigit; /* 有符号的整数 signed variant of digit */
 typedef uint64_t twodigits;
 typedef int64_t stwodigits; /* signed variant of twodigits */
 #define PyLong_SHIFT    30
@@ -62,8 +62,11 @@ typedef long stwodigits; /* signed variant of twodigits */
 #else
 #error "PYLONG_BITS_IN_DIGIT should be 15 or 30"
 #endif
+/* 1 << PyLong_SHIFT：这个表达式将数字 1 左移 PyLong_SHIFT 位。左移操作实际上就是将数字乘以 2 的 PyLong_SHIFT 次方
+   如果 PyLong_SHIFT 是 30，那么 1 << 30 就会得到 2^30，即 1073741824。
+*/
 #define PyLong_BASE     ((digit)1 << PyLong_SHIFT)
-#define PyLong_MASK     ((digit)(PyLong_BASE - 1))
+#define PyLong_MASK     ((digit)(PyLong_BASE - 1)) // 这是一个掩码，通常定义为 PyLong_BASE - 1
 
 #if PyLong_SHIFT % 5 != 0
 #error "longobject.c requires that PyLong_SHIFT be divisible by 5"
@@ -82,6 +85,14 @@ typedef long stwodigits; /* signed variant of twodigits */
 
    CAUTION:  Generic code manipulating subtypes of PyVarObject has to
    aware that ints abuse  ob_size's sign bit.
+   长整数表示。
+   一个数的绝对值等于SUM(for i=0 through abs(ob_size)-1) ob_digit[i] * 2**(SHIFT*i)
+   负数用ob_size < 0表示;
+   0由ob_size == 0表示。
+   在规范化数字中，ob_digit[abs(ob_size)-1](最高有效数字)永远不会为零。
+   同样，在所有情况下，对于所有有效的i， 0 <= ob_digit[i] <= MASK.
+   分配函数负责分配额外的内存，以便ob_digit[0]…ob_digit[abs(ob_size)-1]实际可用。
+   注意:操作PyVarObject子类型的泛型代码必须意识到int滥用ob_size的符号位。
 */
 
 struct _longobject {
