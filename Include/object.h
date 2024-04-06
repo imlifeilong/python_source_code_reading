@@ -297,73 +297,82 @@ typedef struct {
     /* Number implementations must check *both*
        arguments for proper type and implement the necessary conversions
        in the slot functions themselves. */
+    /*
+    unaryfunc 表示一元函数
+    binaryfunc 表示二元函数 
+    ternaryfunc 表示三元函数
+    这些函数都是指向相应操作的函数指针。当自定义类型实现这些操作时，需要为这些函数指针赋值，指向实际的函数。
+    不是所有方法都需要实现。对于不需要的操作，可以将函数指针设置为 NULL，表示该操作不适用于自定义的类型
+    */
+    binaryfunc nb_add;          // 加法
+    binaryfunc nb_subtract;     // 减法
+    binaryfunc nb_multiply;     // 乘法
+    binaryfunc nb_remainder;    // 取余
+    binaryfunc nb_divmod;       // 除法
+    ternaryfunc nb_power;       // 指数
+    unaryfunc nb_negative;      // 取负
+    unaryfunc nb_positive;      // 取正
+    unaryfunc nb_absolute;      // 取绝对值
+    inquiry nb_bool;            // 转为bool值
+    unaryfunc nb_invert;        // 按位取反
+    binaryfunc nb_lshift;       // 左移
+    binaryfunc nb_rshift;       // 右移
+    binaryfunc nb_and;          // 与
+    binaryfunc nb_xor;          // 异或
+    binaryfunc nb_or;           // 或
+    unaryfunc nb_int;           // 转换为整数
+    void *nb_reserved;          /* 以前的 转为长整形 the slot formerly known as nb_long */
+    unaryfunc nb_float;         // 转换为浮点数
 
-    binaryfunc nb_add;
-    binaryfunc nb_subtract;
-    binaryfunc nb_multiply;
-    binaryfunc nb_remainder;
-    binaryfunc nb_divmod;
-    ternaryfunc nb_power;
-    unaryfunc nb_negative;
-    unaryfunc nb_positive;
-    unaryfunc nb_absolute;
-    inquiry nb_bool;
-    unaryfunc nb_invert;
-    binaryfunc nb_lshift;
-    binaryfunc nb_rshift;
-    binaryfunc nb_and;
-    binaryfunc nb_xor;
-    binaryfunc nb_or;
-    unaryfunc nb_int;
-    void *nb_reserved;  /* the slot formerly known as nb_long */
-    unaryfunc nb_float;
+    binaryfunc nb_inplace_add;          // 原地加法，不会创建新对象存储加法结果，节省内存
+    binaryfunc nb_inplace_subtract;     // 原地减法
+    binaryfunc nb_inplace_multiply;     // 原地乘法
+    binaryfunc nb_inplace_remainder;    // 原地取余
+    ternaryfunc nb_inplace_power;       // 原地指数
+    binaryfunc nb_inplace_lshift;       // 原地左移
+    binaryfunc nb_inplace_rshift;       // 原地右移
+    binaryfunc nb_inplace_and;          // 原地与
+    binaryfunc nb_inplace_xor;          // 原地异或
+    binaryfunc nb_inplace_or;           // 原地或
 
-    binaryfunc nb_inplace_add;
-    binaryfunc nb_inplace_subtract;
-    binaryfunc nb_inplace_multiply;
-    binaryfunc nb_inplace_remainder;
-    ternaryfunc nb_inplace_power;
-    binaryfunc nb_inplace_lshift;
-    binaryfunc nb_inplace_rshift;
-    binaryfunc nb_inplace_and;
-    binaryfunc nb_inplace_xor;
-    binaryfunc nb_inplace_or;
+    binaryfunc nb_floor_divide;         // 地板除法，使用//符号，向下取整 4//3 -> 1
+    binaryfunc nb_true_divide;          // 真除法，使用/符号，结果一般为浮点型 4/3 -> 1.3333333333333333
+    binaryfunc nb_inplace_floor_divide; // 原地地板除法
+    binaryfunc nb_inplace_true_divide;  // 原地真除法
 
-    binaryfunc nb_floor_divide;
-    binaryfunc nb_true_divide;
-    binaryfunc nb_inplace_floor_divide;
-    binaryfunc nb_inplace_true_divide;
+    unaryfunc nb_index;                 // 返回用于切片或序列索引的整数
 
-    unaryfunc nb_index;
-
-    binaryfunc nb_matrix_multiply;
-    binaryfunc nb_inplace_matrix_multiply;
+    binaryfunc nb_matrix_multiply;      // 矩阵乘法
+    binaryfunc nb_inplace_matrix_multiply;  // 原地矩阵乘法
 } PyNumberMethods;
 
 typedef struct {
-    lenfunc sq_length;
-    binaryfunc sq_concat;
-    ssizeargfunc sq_repeat;
-    ssizeargfunc sq_item;
-    void *was_sq_slice;
-    ssizeobjargproc sq_ass_item;
-    void *was_sq_ass_slice;
-    objobjproc sq_contains;
+    // 序列对象的函数
+    lenfunc sq_length;              // 序列长度
+    binaryfunc sq_concat;           // 连接序列
+    ssizeargfunc sq_repeat;         // 重复序列
+    ssizeargfunc sq_item;           // 获取序列中指定位置的元素
+    void *was_sq_slice;             // 保留字段，曾经用于存储指向切片操作函数的指针
+    ssizeobjargproc sq_ass_item;    // 设置序列中指定位置的元素
+    void *was_sq_ass_slice;         //
+    objobjproc sq_contains;         // 检查序列是否包含某个元素
 
-    binaryfunc sq_inplace_concat;
-    ssizeargfunc sq_inplace_repeat;
+    binaryfunc sq_inplace_concat;   // 原地连接另一个序列到当前序列
+    ssizeargfunc sq_inplace_repeat; // 原地重复序列指定的次数
 } PySequenceMethods;
 
 typedef struct {
-    lenfunc mp_length;
-    binaryfunc mp_subscript;
-    objobjargproc mp_ass_subscript;
+    // 映射对象的函数
+    lenfunc mp_length;              // 返回映射的长度（即键值对的数量）
+    binaryfunc mp_subscript;        // 获取映射中指定键对应的值
+    objobjargproc mp_ass_subscript; // 设置映射中指定键对应的值
 } PyMappingMethods;
 
 typedef struct {
-    unaryfunc am_await;
-    unaryfunc am_aiter;
-    unaryfunc am_anext;
+    // 异步对象的函数
+    unaryfunc am_await;     // 
+    unaryfunc am_aiter;     // 
+    unaryfunc am_anext;     //
 } PyAsyncMethods;
 
 typedef struct {
@@ -405,29 +414,29 @@ typedef struct _typeobject {
     类型对象也是可变长的对象，也有对应的类型，
     也就是说所有的对象都有类型，包括类型对象本身也有类型
     */
-    PyObject_VAR_HEAD    
-    const char *tp_name; /* 类型名称，主要用于调试查看 For printing, in format "<module>.<name>" */
-    Py_ssize_t tp_basicsize, tp_itemsize; /* 实例的大小，实例的长度 分配内存的大小 For allocation */
+    PyObject_VAR_HEAD               //  类型对象的头部，引用计数和类型标记
+    const char *tp_name;            // 类型名称
+    Py_ssize_t tp_basicsize, tp_itemsize; // tp_basicsize 基本大小  tp_itemsize可变长对象的每个元素的大小
 
     /* Methods to implement standard operations */
 
-    destructor tp_dealloc;
-    printfunc tp_print;
-    getattrfunc tp_getattr;
-    setattrfunc tp_setattr;
+    destructor tp_dealloc;          // 对象销毁函数指针，用于释放对象所占用的内存
+    printfunc tp_print;             // 用于打印类型对象的函数
+    getattrfunc tp_getattr;         // 获取属性的函数
+    setattrfunc tp_setattr;         // 设置属性的函数
     PyAsyncMethods *tp_as_async; /* formerly known as tp_compare (Python 2)
                                     or tp_reserved (Python 3) */
-    reprfunc tp_repr;
+    reprfunc tp_repr;               // 生成类型对象字符串表示的函数
 
     /* Method suites for standard classes */
 
-    PyNumberMethods *tp_as_number; // 数字对象的方法
-    PySequenceMethods *tp_as_sequence; // 序列对象的方法
-    PyMappingMethods *tp_as_mapping; // 映射相关的方法
+    PyNumberMethods *tp_as_number;      // 数值对象的方法集
+    PySequenceMethods *tp_as_sequence;  // 序列对象的方法集
+    PyMappingMethods *tp_as_mapping;    // 映射相关的方法集
 
     /* More standard operations (here for binary compatibility) */
 
-    hashfunc tp_hash;
+    hashfunc tp_hash;                   
     ternaryfunc tp_call;
     reprfunc tp_str;
     getattrofunc tp_getattro;
@@ -437,7 +446,7 @@ typedef struct _typeobject {
     PyBufferProcs *tp_as_buffer;
 
     /* Flags to define presence of optional/expanded features */
-    unsigned long tp_flags;
+    unsigned long tp_flags;         // 类型的标志，用于描述该类型的一些特性，比如是否是可变类型、是否是序列类型等。
 
     const char *tp_doc; /* Documentation string */
 
@@ -464,7 +473,7 @@ typedef struct _typeobject {
     struct PyMemberDef *tp_members;
     struct PyGetSetDef *tp_getset;
     struct _typeobject *tp_base;
-    PyObject *tp_dict;
+    PyObject *tp_dict;              // 类型对象的字典，用于存储类型的属性
     descrgetfunc tp_descr_get;
     descrsetfunc tp_descr_set;
     Py_ssize_t tp_dictoffset;

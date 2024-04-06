@@ -231,15 +231,21 @@ static void
 float_dealloc(PyFloatObject *op)
 {
     if (PyFloat_CheckExact(op)) {
+        // 缓存池满了，不能放了，就直接销毁对象
         if (numfree >= PyFloat_MAXFREELIST)  {
             PyObject_FREE(op);
             return;
         }
+        // 缓存池没满，就放到缓存池中
         numfree++;
+        // 具体的操作就是让op的ob_type转换为_typeobject *类型，然后指向free_list链表的头结点（头部插入）
+        // 当从缓存池中获取的时候，又将op的ob_type转换成 PyFloatObject *
         Py_TYPE(op) = (struct _typeobject *)free_list;
+        // 链表操作，让free_list指向链表的头部
         free_list = op;
     }
     else
+        // 不是PyFloat_Type类型，通过该对象的tp_free直接释放
         Py_TYPE(op)->tp_free((PyObject *)op);
 }
 
@@ -299,6 +305,7 @@ PyFloat_AsDouble(PyObject *op)
    obj is not of float or int type, Py_NotImplemented is incref'ed,
    stored in obj, and returned from the function invoking this macro.
 */
+// 将obj的ob_fval赋给dbl
 #define CONVERT_TO_DOUBLE(obj, dbl)                     \
     if (PyFloat_Check(obj))                             \
         dbl = PyFloat_AS_DOUBLE(obj);                   \
@@ -549,12 +556,17 @@ float_hash(PyFloatObject *v)
 static PyObject *
 float_add(PyObject *v, PyObject *w)
 {
+    // 先将python对象转换成C的double
     double a,b;
+    // 结构体无法运算，所以通过PyFloat_AS_DOUBLE 将PyFloatObject中的ob_fval值抽取出来
+    // v的值赋给a，w的值赋给b
     CONVERT_TO_DOUBLE(v, a);
     CONVERT_TO_DOUBLE(w, b);
+    // 保护浮点数计算，以确保即使发生异常，程序也不会崩溃
     PyFPE_START_PROTECT("add", return 0)
     a = a + b;
     PyFPE_END_PROTECT(a)
+    // 计算完后转换成PyFloatObject对象
     return PyFloat_FromDouble(a);
 }
 
