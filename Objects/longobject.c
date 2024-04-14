@@ -26,7 +26,7 @@ _Py_IDENTIFIER(little);
 _Py_IDENTIFIER(big);
 
 /* convert a PyLong of size 1, 0 or -1 to an sdigit */
-/* 将大小为1,0或-1的PyLong转换为sdigit */
+/* 将ob_size为1,0或-1的PyLong转换为sdigit */
 #define MEDIUM_VALUE(x) (assert(-1 <= Py_SIZE(x) && Py_SIZE(x) <= 1),   \
          Py_SIZE(x) < 0 ? -(sdigit)(x)->ob_digit[0] :   \
              (Py_SIZE(x) == 0 ? (sdigit)0 :                             \
@@ -257,7 +257,7 @@ PyLong_FromLong(long ival)
     unsigned long t;  /* unsigned so >> doesn't propagate sign bit */
     int ndigits = 0;
     int sign;
-
+    // 检测ival如果是小整数池的值，直接返回，不用重新创建
     CHECK_SMALL_INT(ival);
 
     if (ival < 0) {
@@ -298,17 +298,22 @@ PyLong_FromLong(long ival)
 #endif
 
     /* Larger numbers: loop to determine number of digits */
+    // 计算 ob_size 
     t = abs_ival;
     while (t) {
         ++ndigits;
-        t >>= PyLong_SHIFT;
+        t >>= PyLong_SHIFT; // t //= 2**30
     }
+    // 申请内存
     v = _PyLong_New(ndigits);
     if (v != NULL) {
         digit *p = v->ob_digit;
+        // 给ob_size添加符号
         Py_SIZE(v) = ndigits*sign;
         t = abs_ival;
         while (t) {
+            // 计算ob_digit数组的值
+            // Py_SAFE_DOWNCAST安全的类型转换，unsigned long 类型的 t & PyLong_MASK的值转换为digit
             *p++ = Py_SAFE_DOWNCAST(
                 t & PyLong_MASK, unsigned long, digit);
             t >>= PyLong_SHIFT;
@@ -1448,7 +1453,10 @@ PyLong_AsLongLongAndOverflow(PyObject *vv, int *overflow)
     }
     return res;
 }
-
+// 两个操作数v和w是否都是长整数的类型PyLong_Type
+// do { ... } while(0): 这是一个常见的技巧，用于定义一个宏，
+// 该宏可以像语句一样使用，并且不会因分号或其他内容而导致语法错误。
+// 如果v或w不是PyLongObject对象，则使用Py_RETURN_NOTIMPLEMENTED宏来返回一个NotImplemented异常
 #define CHECK_BINOP(v,w)                                \
     do {                                                \
         if (!PyLong_Check(v) || !PyLong_Check(w))       \
@@ -2918,33 +2926,44 @@ long_compare(PyLongObject *a, PyLongObject *b)
     对于列表、元组或其他序列类型的对象，Py_SIZE 通常返回序列中元素的数量。
     */ 
     if (Py_SIZE(a) != Py_SIZE(b)) {
+        // a和b的ob_size不相等时，两个ob_size相减，然后根据符号判断哪个数大
         sign = Py_SIZE(a) - Py_SIZE(b);
     }
     else {
+        // 如果a和b的ob_size相同，需要逐个比较ob_digit中的值
         Py_ssize_t i = Py_ABS(Py_SIZE(a));
+        // 从后往前（因为高位的数放在后面），循环比较ob_digit中的值
         while (--i >= 0 && a->ob_digit[i] == b->ob_digit[i])
             ;
+        // a和b数组ob_digit值都一样，执行--i后i就小于零
         if (i < 0)
             sign = 0;
         else {
+            // 如果a、b的ob_digit中有1位不相同，则只需要比较当前位上的数字，就能分出大小
             sign = (sdigit)a->ob_digit[i] - (sdigit)b->ob_digit[i];
+            // 如果a是负数，则比较结果就要加上负号
             if (Py_SIZE(a) < 0)
                 sign = -sign;
         }
     }
+    // 最终检查sign的值
+    // sign < 0, a < b
+    // sign > 0, a > b
+    // sign = 0, a = b
     return sign < 0 ? -1 : sign > 0 ? 1 : 0;
 }
 
-static PyObject *
 /* 复杂的比较操作
-self    本身 
+self    本身
 other   比较对象
 op      比较操作
 */
+static PyObject *
 long_richcompare(PyObject *self, PyObject *other, int op)
 {
     int result;
     CHECK_BINOP(self, other); // 检测 self other 是不是长整数
+    // 两个对象地址相同时，则表明是同一个对象，不需要比较
     if (self == other)
         result = 0;
     else
@@ -3103,26 +3122,37 @@ x_sub(PyLongObject *a, PyLongObject *b)
 static PyObject *
 long_add(PyLongObject *a, PyLongObject *b)
 {
+    // 定义z类型是PyLongObject，存放a和b的结果
     PyLongObject *z;
 
+    // 检查a和b是不是PyLongObject
     CHECK_BINOP(a, b);
-
+    // 判断a和b的ob_size小于等于1，即数值小于等于(2**30)-1
+    // 真实情况是，大多数都是小于等于(2**30)-1的
     if (Py_ABS(Py_SIZE(a)) <= 1 && Py_ABS(Py_SIZE(b)) <= 1) {
+        // MEDIUM_VALUE 获取ob_size为1,0或-1的数值
+        // ob_size是0, 返回0
+        // ob_size是1, 返回 ob_digit[0]
+        // ob_size是-1, 返回 -ob_digit[0]
         return PyLong_FromLong(MEDIUM_VALUE(a) + MEDIUM_VALUE(b));
     }
     if (Py_SIZE(a) < 0) {
         if (Py_SIZE(b) < 0) {
+            // a和b都小于0的时候，先将a、b的绝对值相加
             z = x_add(a, b);
             if (z != NULL) {
                 /* x_add received at least one multiple-digit int,
                    and thus z must be a multiple-digit int.
                    That also means z is not an element of
                    small_ints, so negating it in-place is safe. */
+                // 增加z的引用计数，并且判断为1
                 assert(Py_REFCNT(z) == 1);
+                // 因为a和b都为负数，相加的结果为负数，所以z的ob_size也是负数
                 Py_SIZE(z) = -(Py_SIZE(z));
             }
         }
         else
+            // 如果a<0 b>0时，只需要计算b和a的绝对值减法，而且不用考虑ob_size负号，因为一定是正数
             z = x_sub(b, a);
     }
     else {
