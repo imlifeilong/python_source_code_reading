@@ -3030,35 +3030,51 @@ long_hash(PyLongObject *v)
 
 
 /* Add the absolute values of two integers. */
-
+// 两个整数绝对值相加
 static PyLongObject *
 x_add(PyLongObject *a, PyLongObject *b)
 {
+    // 获取a和b的ob_size绝对值
     Py_ssize_t size_a = Py_ABS(Py_SIZE(a)), size_b = Py_ABS(Py_SIZE(b));
+    // z 存储最终的结果
     PyLongObject *z;
     Py_ssize_t i;
+    // 进位，存储各部分临时计算结果
     digit carry = 0;
 
     /* Ensure a is the larger of the two: */
+    // 由于习惯，相加的时候确保大的一方在左边
     if (size_a < size_b) {
         { PyLongObject *temp = a; a = b; b = temp; }
         { Py_ssize_t size_temp = size_a;
             size_a = size_b;
             size_b = size_temp; }
     }
+    // 如果size_a >= size_b，a+b后的长度一定不大于size_a+1
     z = _PyLong_New(size_a+1);
     if (z == NULL)
         return NULL;
+    // 以size_b为长度进行循环，从右向左将数组各位上的数相加
     for (i = 0; i < size_b; ++i) {
         carry += a->ob_digit[i] + b->ob_digit[i];
+        // 加法可能会溢出，所以直接使用与运算，速率高
+        // 当carry超过2**30-1时，carry & PyLong_MASK就等于carry-2**30
         z->ob_digit[i] = carry & PyLong_MASK;
+        // 所以这里将carry右移30位，然后作用到下一次循环中
         carry >>= PyLong_SHIFT;
     }
+    // 因为size_a大，如果b到头了, 那么继续从当前的i开始，
+    // 直到i == size_a，将剩余的a的值加上
     for (; i < size_a; ++i) {
+        // 循环b时剩余的carry加上a的值，也有可能溢出
         carry += a->ob_digit[i];
         z->ob_digit[i] = carry & PyLong_MASK;
         carry >>= PyLong_SHIFT;
     }
+    // 到最后，carry有可能是0，也有可能是1，所以先将carry放到结果中
+    // long_normalize中则会从后往前依次检查ob_digit的元素
+    // 如果为0, 那么就将其ob_size减去1，直到出现一个不为0的元素
+    // 因为它的ob_size只比size_a多1，最多只会检查一次
     z->ob_digit[i] = carry;
     return long_normalize(z);
 }
@@ -3072,11 +3088,14 @@ x_sub(PyLongObject *a, PyLongObject *b)
     PyLongObject *z;
     Py_ssize_t i;
     int sign = 1;
+    // 借位，存放部分临时减法结果
     digit borrow = 0;
 
     /* Ensure a is the larger of the two: */
     if (size_a < size_b) {
+        // a小于b 相减后为负数，结果乘上sign
         sign = -1;
+        // 由于习惯，相减的时候确保大的一方在左边
         { PyLongObject *temp = a; a = b; b = temp; }
         { Py_ssize_t size_temp = size_a;
             size_a = size_b;
@@ -3085,11 +3104,16 @@ x_sub(PyLongObject *a, PyLongObject *b)
     else if (size_a == size_b) {
         /* Find highest digit where a and b differ: */
         i = size_a;
+        // 从后往前进行比较ob_digit中的数
         while (--i >= 0 && a->ob_digit[i] == b->ob_digit[i])
             ;
+        // 如果a==b，执行上面的循环后i就变成-1
         if (i < 0)
+            // a==b时相减结果是0，直接返回0即可
             return (PyLongObject *)PyLong_FromLong(0);
+        // 如果a的某一位ob_digit比b小，就说明a比b小
         if (a->ob_digit[i] < b->ob_digit[i]) {
+            // 将sign置为-1表示结果为负数，并且交换a和b的位置，为后面减法做准备
             sign = -1;
             { PyLongObject *temp = a; a = b; b = temp; }
         }
@@ -3157,8 +3181,10 @@ long_add(PyLongObject *a, PyLongObject *b)
     }
     else {
         if (Py_SIZE(b) < 0)
+            // 如果a>=0 并且b<0时，直接让a-b即可
             z = x_sub(a, b);
         else
+            // a>=0并且b>=0，a+b即可
             z = x_add(a, b);
     }
     return (PyObject *)z;
