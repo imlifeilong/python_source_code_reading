@@ -3158,7 +3158,7 @@ long_add(PyLongObject *a, PyLongObject *b)
         // ob_size是0, 返回0
         // ob_size是1, 返回 ob_digit[0]
         // ob_size是-1, 返回 -ob_digit[0]
-        return PyLong_FromLong(MEDIUM_VALUE(a) + MEDIUM_VALUE(b));
+         return PyLong_FromLong(MEDIUM_VALUE(a) + MEDIUM_VALUE(b));
     }
     if (Py_SIZE(a) < 0) {
         if (Py_SIZE(b) < 0) {

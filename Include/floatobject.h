@@ -14,13 +14,15 @@ extern "C" {
 #ifndef Py_LIMITED_API
 typedef struct {
     PyObject_HEAD
-    double ob_fval;
+    double ob_fval;  // 存储浮点数值的
 } PyFloatObject;
 #endif
 
 PyAPI_DATA(PyTypeObject) PyFloat_Type;
 
+// 判断是否是PyFloatObject 或者 PyFloatObject 的子类型
 #define PyFloat_Check(op) PyObject_TypeCheck(op, &PyFloat_Type)
+// 判断是否是 PyFloatObject 类型
 #define PyFloat_CheckExact(op) (Py_TYPE(op) == &PyFloat_Type)
 
 #ifdef Py_NAN
@@ -39,15 +41,17 @@ PyAPI_FUNC(double) PyFloat_GetMin(void);
 PyAPI_FUNC(PyObject *) PyFloat_GetInfo(void);
 
 // 创建浮点数的方式
-/* Return Python float from string PyObject. */
+/* Return Python float from string PyObject. 使用python的字符串创建python的float对象 float("2.8")*/
 PyAPI_FUNC(PyObject *) PyFloat_FromString(PyObject*);
 
-/* Return Python float from C double. */
+/* Return Python float from C double. 使用C double创建python的float对象 f = 2.8*/
 PyAPI_FUNC(PyObject *) PyFloat_FromDouble(double);
 
 /* Extract C double from Python float.  The macro version trades safety for
    speed. */
+
 PyAPI_FUNC(double) PyFloat_AsDouble(PyObject *);
+// 返回一个 op 内容的 C double 表示,但没有错误检查
 #ifndef Py_LIMITED_API
 #define PyFloat_AS_DOUBLE(op) (((PyFloatObject *)(op))->ob_fval)
 #endif

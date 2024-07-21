@@ -85,8 +85,10 @@ _PyBytes_FromSize(Py_ssize_t size, int use_calloc)
         op = (PyBytesObject *)PyObject_Malloc(PyBytesObject_SIZE + size);
     if (op == NULL)
         return PyErr_NoMemory();
+    // 使用 PyObject_Init_VAR 初始化变量长度对象 (PyVarObject)
     (void)PyObject_INIT_VAR(op, &PyBytes_Type, size);
     op->ob_shash = -1;
+    // 无论 v 是否为 NULL，都将新字节对象的末尾设置为 '\0'
     if (!use_calloc)
         op->ob_sval[size] = '\0';
     /* empty byte string singleton */
@@ -94,6 +96,7 @@ _PyBytes_FromSize(Py_ssize_t size, int use_calloc)
         nullstring = op;
         Py_INCREF(op);
     }
+    // 将新创建并初始化的 PyBytesObject 转换为 PyObject*，并返回给调用者
     return (PyObject *) op;
 }
 
@@ -102,10 +105,12 @@ PyBytes_FromStringAndSize(const char *str, Py_ssize_t size)
 {
     PyBytesObject *op;
     if (size < 0) {
+        // 如果 len 为负数，函数会设置 PyExc_SystemError 异常并返回 NULL
         PyErr_SetString(PyExc_SystemError,
             "Negative size passed to PyBytes_FromStringAndSize");
         return NULL;
     }
+    // 长度为1的字节，如果在缓存中，就直接获取并返回
     if (size == 1 && str != NULL &&
         (op = characters[*str & UCHAR_MAX]) != NULL)
     {
@@ -115,19 +120,22 @@ PyBytes_FromStringAndSize(const char *str, Py_ssize_t size)
         Py_INCREF(op);
         return (PyObject *)op;
     }
-
+    // 使用 PyObject_Malloc 为 PyBytesObject 分配内存。
+    // 分配的大小是 sizeof(PyBytesObject) + len，以便存储字节对象本身和它的内容
     op = (PyBytesObject *)_PyBytes_FromSize(size, 0);
     if (op == NULL)
         return NULL;
     if (str == NULL)
         return (PyObject *) op;
-
+    // 如果 v 非 NULL，使用 memcpy 将 v 指向的字符串的前 len 个字节复制到新分配的字节对象中
     memcpy(op->ob_sval, str, size);
     /* share short strings */
+    // 长度为1时，缓存起来
     if (size == 1) {
         characters[*str & UCHAR_MAX] = op;
         Py_INCREF(op);
     }
+    // 将新创建并初始化的 PyBytesObject 转换为 PyObject*，并返回给调用者
     return (PyObject *) op;
 }
 
@@ -1730,14 +1738,14 @@ bytes_buffer_getbuffer(PyBytesObject *self, Py_buffer *view, int flags)
 }
 
 static PySequenceMethods bytes_as_sequence = {
-    (lenfunc)bytes_length, /*sq_length*/
-    (binaryfunc)bytes_concat, /*sq_concat*/
-    (ssizeargfunc)bytes_repeat, /*sq_repeat*/
-    (ssizeargfunc)bytes_item, /*sq_item*/
+    (lenfunc)bytes_length, /*sq_length 查看序列的长度 */
+    (binaryfunc)bytes_concat, /*sq_concat 合并两个字节串 */
+    (ssizeargfunc)bytes_repeat, /*sq_repeat 使用*重复多次字节 */
+    (ssizeargfunc)bytes_item, /*sq_item 索引单个字节返回整形，切片返回字节*/
     0,                  /*sq_slice*/
     0,                  /*sq_ass_item*/
     0,                  /*sq_ass_slice*/
-    (objobjproc)bytes_contains /*sq_contains*/
+    (objobjproc)bytes_contains /*sq_contains 是否包含 in */
 };
 
 static PyMappingMethods bytes_as_mapping = {
@@ -2511,6 +2519,7 @@ bytes_mod(PyObject *self, PyObject *arg)
     if (!PyBytes_Check(self)) {
         Py_RETURN_NOTIMPLEMENTED;
     }
+    // 格式化字节串
     return _PyBytes_FormatEx(PyBytes_AS_STRING(self), PyBytes_GET_SIZE(self),
                              arg, 0);
 }
@@ -2542,7 +2551,8 @@ bytes_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|Oss:bytes", kwlist, &x,
                                      &encoding, &errors))
         return NULL;
-    if (x == NULL) {
+    if (x == NULL) { 
+        // 调用bytes()时会走到这
         if (encoding != NULL || errors != NULL) {
             PyErr_SetString(PyExc_TypeError,
                             "encoding or errors without sequence "
@@ -2553,6 +2563,7 @@ bytes_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     }
 
     if (encoding != NULL) {
+        // 调用 bytes("123", encoding="gbk") 会走到这
         /* Encode via the codec registry */
         if (!PyUnicode_Check(x)) {
             PyErr_SetString(PyExc_TypeError,
@@ -2602,6 +2613,7 @@ bytes_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     }
     /* Is it an integer? */
     if (PyIndex_Check(x)) {
+        // 调用 bytes(3) 会走到这
         size = PyNumber_AsSsize_t(x, PyExc_OverflowError);
         if (size == -1 && PyErr_Occurred()) {
             if (!PyErr_ExceptionMatches(PyExc_TypeError))
@@ -2619,7 +2631,7 @@ bytes_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
             return new;
         }
     }
-
+    // 调用 bytes(b"123") 会走到这
     return PyBytes_FromObject(x);
 }
 
@@ -2788,6 +2800,8 @@ _PyBytes_FromIterator(PyObject *it, PyObject *x)
     return NULL;
 }
 
+// 用于将一个对象转换为字节对象
+// 函数尝试通过调用对象的 __bytes__ 方法或其他合适的转换方式来生成字节对象
 PyObject *
 PyBytes_FromObject(PyObject *x)
 {
@@ -2798,6 +2812,7 @@ PyBytes_FromObject(PyObject *x)
         return NULL;
     }
 
+    // 检查输入对象是否已经是字节对象
     if (PyBytes_CheckExact(x)) {
         Py_INCREF(x);
         return x;
@@ -2872,7 +2887,7 @@ static PyObject *bytes_iter(PyObject *seq);
 PyTypeObject PyBytes_Type = {
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
     "bytes",
-    PyBytesObject_SIZE,
+    PyBytesObject_SIZE,                 // 用于计算 PyBytesObject 结构体的基本大小，不包括存储在 ob_sval 字段中的实际字节数据
     sizeof(char),
     bytes_dealloc,                      /* tp_dealloc */
     0,                                          /* tp_print */

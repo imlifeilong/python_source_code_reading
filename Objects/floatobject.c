@@ -128,6 +128,7 @@ PyFloat_FromDouble(double fval)
         // 
         // 将op对象的ob_type，转为PyFloatObject，当作链表的next指针
         // op是PyFloatObject，而它的ob_type本应该是PyFloat_Type
+        // 将 free_list 指向 op 的 ob_type 所指的对象，并将其转换为PyFloatObject对象
         free_list = (PyFloatObject *) Py_TYPE(op);
         numfree--;
     } else {
@@ -150,7 +151,7 @@ float_from_string_inner(const char *s, Py_ssize_t len, void *obj)
     double x;
     const char *end;
     const char *last = s + len;
-    /* strip space */
+    /* strip space 在字符串末尾跳过空白字符，确保整个字符串都被正确解析。 */
     while (s < last && Py_ISSPACE(*s)) {
         s++;
     }
@@ -161,7 +162,9 @@ float_from_string_inner(const char *s, Py_ssize_t len, void *obj)
 
     /* We don't care about overflow or underflow.  If the platform
      * supports them, infinities and signed zeroes (on underflow) are
-     * fine. */
+     * fine. 
+     将字符串转换为 double 类型。
+     */
     x = PyOS_string_to_double(s, (char **)&end, NULL);
     if (end != last) {
         PyErr_Format(PyExc_ValueError,
@@ -180,30 +183,35 @@ float_from_string_inner(const char *s, Py_ssize_t len, void *obj)
 PyObject *
 PyFloat_FromString(PyObject *v)
 {
-    const char *s;
-    PyObject *s_buffer = NULL;
-    Py_ssize_t len;
-    Py_buffer view = {NULL, NULL};
-    PyObject *result = NULL;
+    const char *s; // 指向输入字符串v的指针
+    PyObject *s_buffer = NULL; // 临时对象，用于存储转换后的字符串
+    Py_ssize_t len; // 输入字符串的长度 
+    Py_buffer view = {NULL, NULL}; // 是一个 Py_buffer 结构体，用于处理字节串的情况
+    PyObject *result = NULL; // 最终返回的 Python 浮点数对象
 
     if (PyUnicode_Check(v)) {
+        // 将 Unicode 字符串中的十进制数字字符和空格字符转换为其对应的 ASCII 字符
         s_buffer = _PyUnicode_TransformDecimalAndSpaceToASCII(v);
         if (s_buffer == NULL)
             return NULL;
         assert(PyUnicode_IS_ASCII(s_buffer));
         /* Simply get a pointer to existing ASCII characters. */
+        // 转换为 UTF-8 编码的 C 字符串
         s = PyUnicode_AsUTF8AndSize(s_buffer, &len);
         assert(s != NULL);
     }
     else if (PyBytes_Check(v)) {
+        // 处理字节的情况，直接获取其内部的 C 字符串和长度
         s = PyBytes_AS_STRING(v);
         len = PyBytes_GET_SIZE(v);
     }
     else if (PyByteArray_Check(v)) {
+        // 处理字节数组的情况，直接获取其内部的 C 字符串和长度
         s = PyByteArray_AS_STRING(v);
         len = PyByteArray_GET_SIZE(v);
     }
     else if (PyObject_GetBuffer(v, &view, PyBUF_SIMPLE) == 0) {
+        // 处理缓冲区字节
         s = (const char *)view.buf;
         len = view.len;
         /* Copy to NUL-terminated buffer. */
@@ -215,14 +223,18 @@ PyFloat_FromString(PyObject *v)
         s = PyBytes_AS_STRING(s_buffer);
     }
     else {
+        // 输入对象是其他类型，则抛出 TypeError 异常
         PyErr_Format(PyExc_TypeError,
             "float() argument must be a string or a number, not '%.200s'",
             Py_TYPE(v)->tp_name);
         return NULL;
     }
+    // 将字符串转换为浮点数
     result = _Py_string_to_number_with_underscores(s, len, "float", v, v,
                                                    float_from_string_inner);
+    // 释放缓冲区并清理临时对象
     PyBuffer_Release(&view);
+    // 缓冲区中对象的引用计数器减1
     Py_XDECREF(s_buffer);
     return result;
 }
@@ -238,10 +250,10 @@ float_dealloc(PyFloatObject *op)
         }
         // 缓存池没满，就放到缓存池中
         numfree++;
-        // 具体的操作就是让op的ob_type转换为_typeobject *类型，然后指向free_list链表的头结点（头部插入）
-        // 当从缓存池中获取的时候，又将op的ob_type转换成 PyFloatObject *
+        // free_list 是 PyFloatObject 类型的 将 free_list 转换为_typeobject
+        // 然后让 op的ob_type指向free_list
         Py_TYPE(op) = (struct _typeobject *)free_list;
-        // 链表操作，让free_list指向链表的头部
+        // 链表操作，让free_list指向链表的头部 op是 PyFloatObject类型的
         free_list = op;
     }
     else
@@ -249,6 +261,11 @@ float_dealloc(PyFloatObject *op)
         Py_TYPE(op)->tp_free((PyObject *)op);
 }
 
+/*
+返回一个 C double 代表 op 的内容。 如果 op 不是一个 Python 浮点数对象但是具有 __float__() 方法，
+此方法将首先被调用，将 op 转换成一个数点数。 如果 __float__() 未定义则将回退至 __index__()。
+如果失败，此方法将返回 -1.0，因此开发者应当调用 PyErr_Occurred() 来检查错误
+*/
 double
 PyFloat_AsDouble(PyObject *op)
 {
@@ -1939,7 +1956,7 @@ PyTypeObject PyFloat_Type = {
     "float",
     sizeof(PyFloatObject),
     0,
-    (destructor)float_dealloc,                  /* tp_dealloc */
+    (destructor)float_dealloc,                  /* 对象的销毁  tp_dealloc */ 
     0,                                          /* tp_print */
     0,                                          /* tp_getattr */
     0,                                          /* tp_setattr */

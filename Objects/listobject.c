@@ -138,6 +138,8 @@ PyObject *
 PyList_New(Py_ssize_t size)
 {
     PyListObject *op;
+    // SHOW_ALLOC_COUNT 用于跟踪内存分配和重用的次数
+    // initialized 变量确保 show_alloc 函数在程序退出时被调用一次
 #ifdef SHOW_ALLOC_COUNT
     static int initialized = 0;
     if (!initialized) {
@@ -150,6 +152,9 @@ PyList_New(Py_ssize_t size)
         PyErr_BadInternalCall();
         return NULL;
     }
+    //如果有可重用的空闲列表对象（numfree > 0），
+    // 则从 free_list 中取出一个空闲对象，
+    // 减少 numfree 的数量，并将其引用计数重置为 1
     if (numfree) {
         numfree--;
         op = free_list[numfree];
@@ -158,6 +163,9 @@ PyList_New(Py_ssize_t size)
         count_reuse++;
 #endif
     } else {
+        // 如果没有空闲对象，则分配一个新的 PyListObject，
+        // 使用 PyObject_GC_New 分配内存并初始化为垃圾回收对象。
+        // 如果分配失败，返回 NULL
         op = PyObject_GC_New(PyListObject, &PyList_Type);
         if (op == NULL)
             return NULL;
@@ -165,17 +173,23 @@ PyList_New(Py_ssize_t size)
         count_alloc++;
 #endif
     }
+    // 如果 size 小于或等于 0，则将 ob_item 设置为 NULL，表示列表为空
     if (size <= 0)
         op->ob_item = NULL;
     else {
+        // 如果 size 大于 0，则为 ob_item 分配空间，
+        // 大小为 size 个指向 PyObject 的指针。
+        // 如果分配失败，减少引用计数并返回内存不足错误。
         op->ob_item = (PyObject **) PyMem_Calloc(size, sizeof(PyObject *));
         if (op->ob_item == NULL) {
             Py_DECREF(op);
             return PyErr_NoMemory();
         }
     }
+    // 设置列表对象的大小（ob_size）和分配的空间（allocated）为 size
     Py_SIZE(op) = size;
     op->allocated = size;
+    // 将对象标记为垃圾回收对象，以便 Python 的垃圾回收器可以跟踪它
     _PyObject_GC_TRACK(op);
     return (PyObject *) op;
 }
@@ -312,22 +326,31 @@ static void
 list_dealloc(PyListObject *op)
 {
     Py_ssize_t i;
+    // 将 op 从垃圾回收器的追踪中移除，因为接下来要进行对象的销毁操作。
     PyObject_GC_UnTrack(op);
+    // Py_TRASHCAN_SAFE_BEGIN(op) 和 Py_TRASHCAN_SAFE_END(op)：
+    // 这是一对宏，用于防止在深度递归的析构过程中导致的栈溢出。
     Py_TRASHCAN_SAFE_BEGIN(op)
     if (op->ob_item != NULL) {
         /* Do it backwards, for Christian Tismer.
            There's a simple test case where somehow this reduces
            thrashing when a *very* large list is created and
            immediately deleted. */
+        // 逆向遍历列表中的元素（从最后一个元素开始），逐个减少元素的引用计数 (Py_XDECREF)。
         i = Py_SIZE(op);
         while (--i >= 0) {
             Py_XDECREF(op->ob_item[i]);
         }
+        // 使用 PyMem_FREE 释放 ob_item 指针数组的内存。
         PyMem_FREE(op->ob_item);
     }
+    // 如果 numfree 小于 PyList_MAXFREELIST 并且 op 是一个准确的列表对象（不是子类），
+    // 将 op 放入空闲列表 free_list 中，以便重用。
     if (numfree < PyList_MAXFREELIST && PyList_CheckExact(op))
+        // free_list[numfree++] = op：将列表对象存储在空闲列表中，并增加空闲列表的计数。
         free_list[numfree++] = op;
     else
+        // 否则，使用类型的 tp_free 方法释放对象的内存。
         Py_TYPE(op)->tp_free((PyObject *)op);
     Py_TRASHCAN_SAFE_END(op)
 }

@@ -1805,33 +1805,49 @@ _PyUnicode_Ready(PyObject *unicode)
 static void
 unicode_dealloc(PyObject *unicode)
 {
+    /*
+    检查 unicode 的驻留状态。驻留状态可以是以下三种之一：
+    SSTATE_NOT_INTERNED：未驻留
+    SSTATE_INTERNED_MORTAL：可销毁的驻留字符串
+    SSTATE_INTERNED_IMMORTAL：不可销毁的驻留字符串
+    */
     switch (PyUnicode_CHECK_INTERNED(unicode)) {
     case SSTATE_NOT_INTERNED:
         break;
 
     case SSTATE_INTERNED_MORTAL:
         /* revive dead object temporarily for DelItem */
+        // 将 unicode 的引用计数设置为 3，暂时复活对象以便从驻留表中删除
         Py_REFCNT(unicode) = 3;
+        // 尝试从 interned 字典中删除 unicode。
+        // 如果删除失败，调用 Py_FatalError 终止程序并报告错误。
         if (PyDict_DelItem(interned, unicode) != 0)
             Py_FatalError(
                 "deletion of interned string failed");
         break;
 
     case SSTATE_INTERNED_IMMORTAL:
+        // 如果字符串是不可销毁的驻留字符串，
+        // 调用 Py_FatalError 终止程序并报告错误。这种情况不应该发生。
         Py_FatalError("Immortal interned string died.");
         /* fall through */
 
     default:
         Py_FatalError("Inconsistent interned string state.");
     }
-
+    /*
+    
+    如果对象有 wstr 内存（宽字符表示），则释放它。
+    如果对象有 utf8 内存（UTF-8 表示），则释放它。
+    如果对象不是紧凑表示且有其他数据内存，则释放它。
+    */
     if (_PyUnicode_HAS_WSTR_MEMORY(unicode))
         PyObject_DEL(_PyUnicode_WSTR(unicode));
     if (_PyUnicode_HAS_UTF8_MEMORY(unicode))
         PyObject_DEL(_PyUnicode_UTF8(unicode));
     if (!PyUnicode_IS_COMPACT(unicode) && _PyUnicode_DATA_ANY(unicode))
         PyObject_DEL(_PyUnicode_DATA_ANY(unicode));
-
+    // 调用对象类型的 tp_free 函数，释放 unicode 对象本身的内存。
     Py_TYPE(unicode)->tp_free(unicode);
 }
 
@@ -15271,34 +15287,46 @@ void
 PyUnicode_InternInPlace(PyObject **p)
 {
     PyObject *s = *p;
+    // 用于存储在驻留表（interned dictionary）中找到或插入的字符串。
     PyObject *t;
 #ifdef Py_DEBUG
+    // 在调试模式下，使用 assert 检查 s 是否为空以及是否是一个 Unicode 字符串。
     assert(s != NULL);
     assert(_PyUnicode_CHECK(s));
 #else
+    // 在非调试模式下，直接检查 s 是否为空或是否为 Unicode 字符串，如果条件不满足则返回。
     if (s == NULL || !PyUnicode_Check(s))
         return;
 #endif
     /* If it's a subclass, we don't really know what putting
        it in the interned dict might do. */
+    // 检查 s 是否为准确的 Unicode 字符串类型。
+    // 如果 s 是 Unicode 字符串的子类，则返回，因为子类的行为可能与基类不同。
     if (!PyUnicode_CheckExact(s))
         return;
+    // 检查 s 是否已经驻留，如果已经驻留则返回。
     if (PyUnicode_CHECK_INTERNED(s))
         return;
+    // 检查 interned 字典是否为空，如果为空则创建一个新的字典。
     if (interned == NULL) {
         interned = PyDict_New();
+        // 如果创建字典失败，清除异常并返回。
         if (interned == NULL) {
             PyErr_Clear(); /* Don't leave an exception */
             return;
         }
     }
+    // 使用 PyDict_SetDefault 将 s 插入到 interned 字典中，如果 s 已存在则返回现有的值。
     Py_ALLOW_RECURSION
     t = PyDict_SetDefault(interned, s, s);
     Py_END_ALLOW_RECURSION
+    // 如果插入失败，清除异常并返回。
     if (t == NULL) {
         PyErr_Clear();
         return;
     }
+    // 如果 t 不等于 s（表示 s 已经存在于驻留表中），
+    // 增加 t 的引用计数，并更新 p 指向 t，然后返回。
     if (t != s) {
         Py_INCREF(t);
         Py_SETREF(*p, t);
@@ -15306,16 +15334,22 @@ PyUnicode_InternInPlace(PyObject **p)
     }
     /* The two references in interned are not counted by refcnt.
        The deallocator will take care of this */
+    // 减少 s 的引用计数两次。 因为interned字典中的key和value都是s
     Py_REFCNT(s) -= 2;
+    // 将 s 的驻留状态设置为 SSTATE_INTERNED_MORTAL，表示这是一个可被销毁的驻留字符串。
     _PyUnicode_STATE(s).interned = SSTATE_INTERNED_MORTAL;
 }
 
 void
 PyUnicode_InternImmortal(PyObject **p)
 {
+    //检查字符串p是否已经驻留，如果没有驻留则将其加入驻留表
     PyUnicode_InternInPlace(p);
+    //如果 *p（即 p 指向的字符串对象）的驻留状态不是不可销毁
     if (PyUnicode_CHECK_INTERNED(*p) != SSTATE_INTERNED_IMMORTAL) {
+        // 将 *p 的驻留状态设置为不可销毁 (SSTATE_INTERNED_IMMORTAL)。
         _PyUnicode_STATE(*p).interned = SSTATE_INTERNED_IMMORTAL;
+        // 增加 *p 的引用计数 (Py_INCREF(*p))，以确保字符串对象不会被垃圾回收。
         Py_INCREF(*p);
     }
 }
