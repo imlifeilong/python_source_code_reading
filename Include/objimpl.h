@@ -260,15 +260,23 @@ PyAPI_FUNC(PyVarObject *) _PyObject_GC_Resize(PyVarObject *, Py_ssize_t);
 #ifndef Py_LIMITED_API
 typedef union _gc_head {
     struct {
+        // 链表中的下一个垃圾回收对象的指针
         union _gc_head *gc_next;
+        // 链表中的上一个垃圾回收对象的指针
         union _gc_head *gc_prev;
+        // 引用计数器，用于标记对象是否可以被回收
         Py_ssize_t gc_refs;
     } gc;
+    // 强制最坏情况下的内存对齐
     long double dummy;  /* force worst-case alignment */
     // malloc returns memory block aligned for any built-in types and
     // long double is the largest standard C type.
     // On amd64 linux, long double requires 16 byte alignment.
     // See bpo-27987 for more discussion.
+    // malloc 返回的内存块会对齐到任何内建类型的边界，
+    // 而 long double 是标准 C 类型中最大的一种。
+    // 在 amd64 Linux 系统中，long double 需要 16 字节对齐。
+    // 参见 bpo-27987 以获取更多讨论。
 } PyGC_Head;
 
 extern PyGC_Head *_PyGC_generation0;

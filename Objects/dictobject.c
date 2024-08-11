@@ -285,11 +285,15 @@ static uint64_t pydict_global_version = 0;
 
 /* Dictionary reuse scheme to save calls to malloc and free */
 #ifndef PyDict_MAXFREELIST
-#define PyDict_MAXFREELIST 80
+#define PyDict_MAXFREELIST 80 // 字典对象的缓存最大80个
 #endif
-static PyDictObject *free_list[PyDict_MAXFREELIST];
-static int numfree = 0;
+// 字典对象缓存池是一个数组
+static PyDictObject *free_list[PyDict_MAXFREELIST]; 
+// 静态整型变量,跟踪当前 free_list 中缓存的字典对象数量。初始值为 0
+static int numfree = 0;   
+// 字典键对象的缓存池
 static PyDictKeysObject *keys_free_list[PyDict_MAXFREELIST];
+// 跟踪当前 keys_free_list 中缓存的字典键对象数量。初始值为 0
 static int numfreekeys = 0;
 
 #include "clinic/dictobject.c.h"
@@ -544,48 +548,60 @@ _PyDict_CheckConsistency(PyDictObject *mp)
 
 static PyDictKeysObject *new_keys_object(Py_ssize_t size)
 {
-    PyDictKeysObject *dk;
+    PyDictKeysObject *dk; /* 用于存储新创建的 PyDictKeysObject 对象的指针 */
     Py_ssize_t es, usable;
 
+    /* 确认 size 大于等于最小字典大小，并且是 2 的幂 */
     assert(size >= PyDict_MINSIZE);
     assert(IS_POWER_OF_2(size));
 
+    /* 计算可用条目数（usable），即哈希表中实际可用的槽位数 */
     usable = USABLE_FRACTION(size);
+    /* 确定每个索引的大小（es），根据哈希表大小调整索引的字节大小 */
     if (size <= 0xff) {
-        es = 1;
+        es = 1; /* 如果 size <= 255，则索引大小为 1 字节 */
     }
     else if (size <= 0xffff) {
-        es = 2;
+        es = 2; /* 如果 size <= 65535，则索引大小为 2 字节 */
     }
 #if SIZEOF_VOID_P > 4
     else if (size <= 0xffffffff) {
-        es = 4;
+        es = 4; /* 如果 size <= 4294967295，则索引大小为 4 字节 */
     }
 #endif
     else {
-        es = sizeof(Py_ssize_t);
+        es = sizeof(Py_ssize_t);  /* 否则，索引大小为 Py_ssize_t 类型的大小 */
     }
 
+    /* 如果 size 是最小字典大小，并且有可用的缓存对象，从缓存中取出一个对象 */
     if (size == PyDict_MINSIZE && numfreekeys > 0) {
         dk = keys_free_list[--numfreekeys];
     }
     else {
+        /* 
+        否则，分配新的内存空间，包括 PyDictKeysObject 的基础大小、
+        索引数组的大小（es * size）以及键条目数组的大小（sizeof(PyDictKeyEntry) * usable） 
+        */
         dk = PyObject_MALLOC(sizeof(PyDictKeysObject)
                              + es * size
                              + sizeof(PyDictKeyEntry) * usable);
         if (dk == NULL) {
-            PyErr_NoMemory();
+            PyErr_NoMemory(); /* 内存分配失败，返回 NULL 并设置内存错误 */
             return NULL;
         }
     }
-    DK_DEBUG_INCREF dk->dk_refcnt = 1;
-    dk->dk_size = size;
-    dk->dk_usable = usable;
-    dk->dk_lookup = lookdict_unicode_nodummy;
-    dk->dk_nentries = 0;
+    /* 初始化 PyDictKeysObject 对象的字段 */
+    DK_DEBUG_INCREF dk->dk_refcnt = 1; /* 设置引用计数为 1 */
+    dk->dk_size = size; /* 设置哈希表大小 */
+    dk->dk_usable = usable; /* 设置可用条目数 */
+    dk->dk_lookup = lookdict_unicode_nodummy; /* 设置查找函数为 lookdict_unicode_nodummy */
+    dk->dk_nentries = 0; /* 初始化已使用条目数为 0 */
+    /* 初始化 dk_indices 数组，所有索引初始化为 0xff 表示为空 */
     memset(&dk->dk_indices[0], 0xff, es * size);
+    /* 初始化 dk_entries 数组，所有键条目初始化为 0 */
     memset(DK_ENTRIES(dk), 0, sizeof(PyDictKeyEntry) * usable);
-    return dk;
+    /* 返回新创建的 PyDictKeysObject 对象 */
+    return dk; 
 }
 
 static void
@@ -611,28 +627,31 @@ free_keys_object(PyDictKeysObject *keys)
 static PyObject *
 new_dict(PyDictKeysObject *keys, PyObject **values)
 {
-    PyDictObject *mp;
-    assert(keys != NULL);
-    if (numfree) {
-        mp = free_list[--numfree];
-        assert (mp != NULL);
-        assert (Py_TYPE(mp) == &PyDict_Type);
-        _Py_NewReference((PyObject *)mp);
+    PyDictObject* mp; // 定义指向字典对象的指针
+    assert(keys != NULL); // 断言 keys 不为空
+
+    if (numfree) { // 如果自由列表中有可用的字典对象
+        mp = free_list[--numfree]; // 从自由列表中取出一个字典对象
+        assert(mp != NULL); // 断言取出的字典对象不为空
+        assert(Py_TYPE(mp) == &PyDict_Type); // 断言取出的字典对象的类型正确
+        _Py_NewReference((PyObject*)mp); // 增加字典对象的引用计数
     }
-    else {
-        mp = PyObject_GC_New(PyDictObject, &PyDict_Type);
-        if (mp == NULL) {
-            DK_DECREF(keys);
-            free_values(values);
-            return NULL;
+    else { // 如果自由列表中没有可用的字典对象
+        mp = PyObject_GC_New(PyDictObject, &PyDict_Type); // 分配一个新的字典对象
+        if (mp == NULL) { // 如果分配失败
+            DK_DECREF(keys); // 减少 keys 的引用计数
+            free_values(values); // 释放 values 数组
+            return NULL; // 返回 NULL 表示分配失败
         }
     }
-    mp->ma_keys = keys;
-    mp->ma_values = values;
-    mp->ma_used = 0;
-    mp->ma_version_tag = DICT_NEXT_VERSION();
-    assert(_PyDict_CheckConsistency(mp));
-    return (PyObject *)mp;
+
+    mp->ma_keys = keys; // 初始化字典对象的 keys
+    mp->ma_values = values; // 初始化字典对象的 values
+    mp->ma_used = 0; // 初始化字典对象的已使用元素数量
+    mp->ma_version_tag = DICT_NEXT_VERSION(); // 初始化字典对象的版本标签
+
+    assert(_PyDict_CheckConsistency(mp)); // 断言字典对象的一致性
+    return (PyObject*)mp; // 返回新的字典对象
 }
 
 /* Consumes a reference to the keys object */
@@ -710,9 +729,14 @@ clone_combined_dict(PyDictObject *orig)
 PyObject *
 PyDict_New(void)
 {
+    // 创建一个新的字典键对象，初始大小为 PyDict_MINSIZE
     PyDictKeysObject *keys = new_keys_object(PyDict_MINSIZE);
+    
+    // 如果键对象创建失败，返回 NULL
     if (keys == NULL)
         return NULL;
+    
+    // 使用新创建的键对象和空值数组创建一个新的字典对象
     return new_dict(keys, NULL);
 }
 
@@ -895,6 +919,7 @@ lookdict_unicode_nodummy(PyDictObject *mp, PyObject *key,
             *value_addr = ep->me_value;
             return ix;
         }
+        // 重新计算索引位置
         perturb >>= PERTURB_SHIFT;
         i = mask & (i*5 + perturb + 1);
     }
@@ -1039,89 +1064,88 @@ Used both by the internal resize routine and by the public insert routine.
 Returns -1 if an error occurred, or 0 on success.
 */
 static int
-insertdict(PyDictObject *mp, PyObject *key, Py_hash_t hash, PyObject *value)
+insertdict(PyDictObject* mp, PyObject* key, Py_hash_t hash, PyObject* value)
 {
-    PyObject *old_value;
-    PyDictKeyEntry *ep;
+    PyObject* old_value; // 保存旧的值
+    PyDictKeyEntry* ep;  // 指向字典条目的指针
 
-    Py_INCREF(key);
-    Py_INCREF(value);
+    Py_INCREF(key);   // 增加 key 的引用计数
+    Py_INCREF(value); // 增加 value 的引用计数
+
+    // 如果字典有分离的值数组并且 key 不是精确的 Unicode 类型
     if (mp->ma_values != NULL && !PyUnicode_CheckExact(key)) {
-        if (insertion_resize(mp) < 0)
-            goto Fail;
+        if (insertion_resize(mp) < 0) // 尝试调整字典大小
+            goto Fail; // 如果调整大小失败，跳转到 Fail 标签
     }
 
+    // 查找 key 对应的索引
     Py_ssize_t ix = mp->ma_keys->dk_lookup(mp, key, hash, &old_value);
-    if (ix == DKIX_ERROR)
-        goto Fail;
+    if (ix == DKIX_ERROR) // 如果查找失败
+        goto Fail; // 跳转到 Fail 标签
 
     assert(PyUnicode_CheckExact(key) || mp->ma_keys->dk_lookup == lookdict);
-    MAINTAIN_TRACKING(mp, key, value);
+    MAINTAIN_TRACKING(mp, key, value); // 更新字典的跟踪信息
 
-    /* When insertion order is different from shared key, we can't share
-     * the key anymore.  Convert this instance to combine table.
-     */
+    // 当插入顺序与共享键不同步时，不能共享键对象
     if (_PyDict_HasSplitTable(mp) &&
         ((ix >= 0 && old_value == NULL && mp->ma_used != ix) ||
-         (ix == DKIX_EMPTY && mp->ma_used != mp->ma_keys->dk_nentries))) {
-        if (insertion_resize(mp) < 0)
-            goto Fail;
-        ix = DKIX_EMPTY;
+            (ix == DKIX_EMPTY && mp->ma_used != mp->ma_keys->dk_nentries))) {
+        if (insertion_resize(mp) < 0) // 尝试调整字典大小
+            goto Fail; // 如果调整大小失败，跳转到 Fail 标签
+        ix = DKIX_EMPTY; // 重置索引为 DKIX_EMPTY
     }
 
-    if (ix == DKIX_EMPTY) {
-        /* Insert into new slot. */
+    if (ix == DKIX_EMPTY) { // 如果索引为空
         assert(old_value == NULL);
-        if (mp->ma_keys->dk_usable <= 0) {
-            /* Need to resize. */
-            if (insertion_resize(mp) < 0)
-                goto Fail;
+        if (mp->ma_keys->dk_usable <= 0) { // 如果没有可用的插槽
+            if (insertion_resize(mp) < 0) // 尝试调整字典大小
+                goto Fail; // 如果调整大小失败，跳转到 Fail 标签
         }
-        Py_ssize_t hashpos = find_empty_slot(mp->ma_keys, hash);
-        ep = &DK_ENTRIES(mp->ma_keys)[mp->ma_keys->dk_nentries];
-        dk_set_index(mp->ma_keys, hashpos, mp->ma_keys->dk_nentries);
-        ep->me_key = key;
-        ep->me_hash = hash;
-        if (mp->ma_values) {
-            assert (mp->ma_values[mp->ma_keys->dk_nentries] == NULL);
-            mp->ma_values[mp->ma_keys->dk_nentries] = value;
+        Py_ssize_t hashpos = find_empty_slot(mp->ma_keys, hash); // 查找空插槽
+        ep = &DK_ENTRIES(mp->ma_keys)[mp->ma_keys->dk_nentries]; // 获取字典条目指针
+        dk_set_index(mp->ma_keys, hashpos, mp->ma_keys->dk_nentries); // 设置索引
+        ep->me_key = key; // 设置键
+        ep->me_hash = hash; // 设置哈希值
+        if (mp->ma_values) { // 如果有分离的值数组
+            assert(mp->ma_values[mp->ma_keys->dk_nentries] == NULL);
+            mp->ma_values[mp->ma_keys->dk_nentries] = value; // 设置值
         }
         else {
-            ep->me_value = value;
+            ep->me_value = value; // 设置值
         }
-        mp->ma_used++;
-        mp->ma_version_tag = DICT_NEXT_VERSION();
-        mp->ma_keys->dk_usable--;
-        mp->ma_keys->dk_nentries++;
+        mp->ma_used++; // 增加已使用元素数量
+        mp->ma_version_tag = DICT_NEXT_VERSION(); // 更新字典版本标签
+        mp->ma_keys->dk_usable--; // 减少可用插槽数量
+        mp->ma_keys->dk_nentries++; // 增加条目数量
         assert(mp->ma_keys->dk_usable >= 0);
-        assert(_PyDict_CheckConsistency(mp));
-        return 0;
+        assert(_PyDict_CheckConsistency(mp)); // 断言字典一致性
+        return 0; // 插入成功
     }
 
-    if (_PyDict_HasSplitTable(mp)) {
-        mp->ma_values[ix] = value;
-        if (old_value == NULL) {
-            /* pending state */
+    if (_PyDict_HasSplitTable(mp)) { // 如果字典有分离的值数组
+        mp->ma_values[ix] = value; // 设置值
+        if (old_value == NULL) { // 如果旧值为空
             assert(ix == mp->ma_used);
-            mp->ma_used++;
+            mp->ma_used++; // 增加已使用元素数量
         }
     }
     else {
         assert(old_value != NULL);
-        DK_ENTRIES(mp->ma_keys)[ix].me_value = value;
+        DK_ENTRIES(mp->ma_keys)[ix].me_value = value; // 设置值
     }
 
-    mp->ma_version_tag = DICT_NEXT_VERSION();
-    Py_XDECREF(old_value); /* which **CAN** re-enter (see issue #22653) */
-    assert(_PyDict_CheckConsistency(mp));
-    Py_DECREF(key);
-    return 0;
+    mp->ma_version_tag = DICT_NEXT_VERSION(); // 更新字典版本标签
+    Py_XDECREF(old_value); // 释放旧值的引用计数，可能会重新进入
+    assert(_PyDict_CheckConsistency(mp)); // 断言字典一致性
+    Py_DECREF(key); // 释放 key 的引用计数
+    return 0; // 插入成功
 
 Fail:
-    Py_DECREF(value);
-    Py_DECREF(key);
-    return -1;
+    Py_DECREF(value); // 释放 value 的引用计数
+    Py_DECREF(key); // 释放 key 的引用计数
+    return -1; // 插入失败
 }
+
 
 /*
 Internal routine used by dictresize() to build a hashtable of entries.
@@ -1525,24 +1549,41 @@ static int
 delitem_common(PyDictObject *mp, Py_hash_t hash, Py_ssize_t ix,
                PyObject *old_value)
 {
-    PyObject *old_key;
-    PyDictKeyEntry *ep;
+    PyObject* old_key;
+    PyDictKeyEntry* ep;
 
+    // 查找键在哈希表中的位置
     Py_ssize_t hashpos = lookdict_index(mp->ma_keys, hash, ix);
     assert(hashpos >= 0);
 
+    // 更新字典的已用条目数和版本标签
     mp->ma_used--;
     mp->ma_version_tag = DICT_NEXT_VERSION();
+
+    // 获取键值对的条目
     ep = &DK_ENTRIES(mp->ma_keys)[ix];
+
+    // 将哈希表中的该位置设置为 DKIX_DUMMY，表示该位置曾经被占用但现在已被删除
     dk_set_index(mp->ma_keys, hashpos, DKIX_DUMMY);
+
+    // 确保字典允许删除操作
     ENSURE_ALLOWS_DELETIONS(mp);
+
+    // 获取旧键
     old_key = ep->me_key;
+
+    // 将条目的键和值设置为 NULL
     ep->me_key = NULL;
     ep->me_value = NULL;
+
+    // 减少键和值的引用计数
     Py_DECREF(old_key);
     Py_DECREF(old_value);
 
+    // 确保字典的一致性
     assert(_PyDict_CheckConsistency(mp));
+
+    // 返回成功
     return 0;
 }
 
@@ -1550,14 +1591,21 @@ int
 PyDict_DelItem(PyObject *op, PyObject *key)
 {
     Py_hash_t hash;
+
+    // 确保 key 不为空
     assert(key);
+
+    // 如果 key 不是一个精确的 Unicode 对象或者 key 的哈希值尚未计算（即 hash 为 -1）
     if (!PyUnicode_CheckExact(key) ||
-        (hash = ((PyASCIIObject *) key)->hash) == -1) {
+        (hash = ((PyASCIIObject*)key)->hash) == -1) {
+        // 计算 key 的哈希值
         hash = PyObject_Hash(key);
+        // 如果计算哈希值时出错，则返回 -1
         if (hash == -1)
             return -1;
     }
 
+    // 调用 _PyDict_DelItem_KnownHash 函数，用已知的哈希值删除键值对
     return _PyDict_DelItem_KnownHash(op, key, hash);
 }
 
@@ -1565,33 +1613,46 @@ int
 _PyDict_DelItem_KnownHash(PyObject *op, PyObject *key, Py_hash_t hash)
 {
     Py_ssize_t ix;
-    PyDictObject *mp;
-    PyObject *old_value;
+    PyDictObject* mp;
+    PyObject* old_value;
 
+    // 检查 op 是否为字典对象
     if (!PyDict_Check(op)) {
         PyErr_BadInternalCall();
         return -1;
     }
+
+    // 确保 key 不为空且哈希值已计算
     assert(key);
     assert(hash != -1);
-    mp = (PyDictObject *)op;
+
+    // 将字典对象 op 转换为 PyDictObject 类型
+    mp = (PyDictObject*)op;
+
+    // 查找键 key 在字典中的位置
     ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value);
+
+    // 检查查找过程中是否发生错误
     if (ix == DKIX_ERROR)
         return -1;
+
+    // 如果键不存在，返回键错误
     if (ix == DKIX_EMPTY || old_value == NULL) {
         _PyErr_SetKeyError(key);
         return -1;
     }
 
-    // Split table doesn't allow deletion.  Combine it.
+    // 如果是分割表，则不允许直接删除，需要先合并表
     if (_PyDict_HasSplitTable(mp)) {
         if (dictresize(mp, DK_SIZE(mp->ma_keys))) {
             return -1;
         }
+        // 重新查找键的位置
         ix = (mp->ma_keys->dk_lookup)(mp, key, hash, &old_value);
         assert(ix >= 0);
     }
 
+    // 调用 delitem_common 函数执行删除操作
     return delitem_common(mp, hash, ix, old_value);
 }
 
@@ -1931,31 +1992,35 @@ Fail:
 static void
 dict_dealloc(PyDictObject *mp)
 {
-    PyObject **values = mp->ma_values;
-    PyDictKeysObject *keys = mp->ma_keys;
-    Py_ssize_t i, n;
+    PyObject** values = mp->ma_values; // 获取字典对象的值数组指针
+    PyDictKeysObject* keys = mp->ma_keys; // 获取字典对象的键对象指针
+    Py_ssize_t i, n; // 定义循环变量 i 和 n，用于遍历字典的值
 
     /* bpo-31095: UnTrack is needed before calling any callbacks */
-    PyObject_GC_UnTrack(mp);
-    Py_TRASHCAN_SAFE_BEGIN(mp)
-    if (values != NULL) {
-        if (values != empty_values) {
-            for (i = 0, n = mp->ma_keys->dk_nentries; i < n; i++) {
-                Py_XDECREF(values[i]);
+    PyObject_GC_UnTrack(mp); // 将字典对象从垃圾回收器的跟踪列表中移除
+    Py_TRASHCAN_SAFE_BEGIN(mp) // 开始一个安全的垃圾桶操作块，防止深度递归导致栈溢出
+
+        if (values != NULL) { // 如果字典的值数组不为空
+            if (values != empty_values) { // 如果值数组不是空数组
+                for (i = 0, n = mp->ma_keys->dk_nentries; i < n; i++) { // 遍历值数组
+                    Py_XDECREF(values[i]); // 递减引用计数，释放值对象
+                }
+                free_values(values); // 释放值数组的内存
             }
-            free_values(values);
+            DK_DECREF(keys); // 递减键对象的引用计数，可能释放键对象
         }
-        DK_DECREF(keys);
-    }
-    else if (keys != NULL) {
-        assert(keys->dk_refcnt == 1);
-        DK_DECREF(keys);
-    }
+        else if (keys != NULL) { // 如果值数组为空但键对象不为空
+            assert(keys->dk_refcnt == 1); // 断言键对象的引用计数为1
+            DK_DECREF(keys); // 递减键对象的引用计数，释放键对象
+        }
+
+    // 如果自由列表中未满，并且当前对象类型是 PyDict_Type
     if (numfree < PyDict_MAXFREELIST && Py_TYPE(mp) == &PyDict_Type)
-        free_list[numfree++] = mp;
+        free_list[numfree++] = mp; // 将字典对象添加到自由列表中
     else
-        Py_TYPE(mp)->tp_free((PyObject *)mp);
-    Py_TRASHCAN_SAFE_END(mp)
+        Py_TYPE(mp)->tp_free((PyObject*)mp); // 否则，调用类型的 tp_free 方法释放内存
+
+    Py_TRASHCAN_SAFE_END(mp) // 结束垃圾桶操作块
 }
 
 

@@ -151,14 +151,27 @@ PyEval_ThreadsInitialized(void)
     return gil_created();
 }
 
+// 它用于初始化 Python 解释器的多线程支持，主要是创建和获取全局解释器锁（GIL）
 void
 PyEval_InitThreads(void)
 {
+    // 检查 GIL 是否已创建：调用 gil_created() 检查全局解释器锁 (GIL) 是否已经创建。
+    // 如果 GIL 已经存在，直接返回，表示线程支持已经初始化过，不需要再次初始化。
     if (gil_created())
         return;
+    // 创建 GIL：如果 GIL 还未创建，调用 create_gil() 函数创建一个新的全局解释器锁。
+    // GIL 是用于在多线程环境中保护 CPython 解释器内部状态的关键锁。
     create_gil();
+    // 获取 GIL：调用 take_gil() 获取刚刚创建的 GIL，并将其分配给当前线程。
+    // PyThreadState_GET() 返回当前线程的线程状态 (PyThreadState) 对象，作为 take_gil() 的参数。
     take_gil(PyThreadState_GET());
+    // 记录主线程 ID：将当前主线程的线程标识符（ID）
+    // 存储在 _PyRuntime.ceval.pending.main_thread 中。
+    // PyThread_get_thread_ident() 获取当前线程的 ID。这通常用于区分主线程和其他辅助线程
     _PyRuntime.ceval.pending.main_thread = PyThread_get_thread_ident();
+    // 初始化等待锁：如果 _PyRuntime.ceval.pending.lock 还没有分配（即为 NULL），
+    // 则调用 PyThread_allocate_lock() 分配一个新的锁对象。
+    // 这个锁用于管理等待线程队列，以确保线程安全的调度。
     if (!_PyRuntime.ceval.pending.lock)
         _PyRuntime.ceval.pending.lock = PyThread_allocate_lock();
 }

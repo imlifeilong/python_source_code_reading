@@ -40,6 +40,9 @@ list_resize(PyListObject *self, Py_ssize_t newsize)
     /* Bypass realloc() when a previous overallocation is large enough
        to accommodate the newsize.  If the newsize falls lower than half
        the allocated size, then proceed with the realloc() to shrink the list.
+       如果之前分配的内存足够容纳新的大小，且新的大小不小于当前分配内存的一半，
+       则绕过 realloc() 以避免不必要的重新分配。
+       如果新大小低于当前分配大小的一半，则继续使用 realloc() 以缩小列表大小。
     */
     if (allocated >= newsize && newsize >= (allocated >> 1)) {
         assert(self->ob_item != NULL || newsize == 0);
@@ -55,21 +58,32 @@ list_resize(PyListObject *self, Py_ssize_t newsize)
      * The growth pattern is:  0, 4, 8, 16, 25, 35, 46, 58, 72, 88, ...
      * Note: new_allocated won't overflow because the largest possible value
      *       is PY_SSIZE_T_MAX * (9 / 8) + 6 which always fits in a size_t.
+     *  按比例过度分配列表大小，为将来的增长留出空间。
+     * 这种过度分配是适度的，但足以在系统 realloc() 性能不佳的情况下，
+     * 在长时间的 append() 操作序列中提供线性时间的摊销行为。
+     * 增长模式为：0, 4, 8, 16, 25, 35, 46, 58, 72, 88, ...
+     * 注意：new_allocated 不会溢出，因为最大可能值是
+     *       PY_SSIZE_T_MAX * (9 / 8) + 6，这总是适合 size_t 类型。
      */
     new_allocated = (size_t)newsize + (newsize >> 3) + (newsize < 9 ? 3 : 6);
+    // 检查新的分配大小是否超过允许的最大值 PY_SSIZE_T_MAX。如果超过，则返回内存不足错误。
     if (new_allocated > (size_t)PY_SSIZE_T_MAX / sizeof(PyObject *)) {
         PyErr_NoMemory();
         return -1;
     }
 
+    // 如果新的大小是 0，则将分配大小设置为 0
     if (newsize == 0)
         new_allocated = 0;
+    // 计算新分配的字节数
     num_allocated_bytes = new_allocated * sizeof(PyObject *);
+    // 重新分配内存块
     items = (PyObject **)PyMem_Realloc(self->ob_item, num_allocated_bytes);
     if (items == NULL) {
         PyErr_NoMemory();
         return -1;
     }
+    // 更新列表的内存块指针和大小信息
     self->ob_item = items;
     Py_SIZE(self) = newsize;
     self->allocated = new_allocated;
@@ -2754,16 +2768,16 @@ static PyMethodDef list_methods[] = {
 };
 
 static PySequenceMethods list_as_sequence = {
-    (lenfunc)list_length,                       /* sq_length */
-    (binaryfunc)list_concat,                    /* sq_concat */
-    (ssizeargfunc)list_repeat,                  /* sq_repeat */
-    (ssizeargfunc)list_item,                    /* sq_item */
-    0,                                          /* sq_slice */
-    (ssizeobjargproc)list_ass_item,             /* sq_ass_item */
-    0,                                          /* sq_ass_slice */
-    (objobjproc)list_contains,                  /* sq_contains */
-    (binaryfunc)list_inplace_concat,            /* sq_inplace_concat */
-    (ssizeargfunc)list_inplace_repeat,          /* sq_inplace_repeat */
+    (lenfunc)list_length,                       /* sq_length 获取列表的长度 */
+    (binaryfunc)list_concat,                    /* sq_concat 实现列表连接操作（+），返回一个新列表*/
+    (ssizeargfunc)list_repeat,                  /* sq_repeat 实现列表重复操作（*），返回一个新列表*/
+    (ssizeargfunc)list_item,                    /* sq_item 通过索引获取列表项*/
+    0,                                          /* sq_slice 序列切片操作的函数指针，未实现*/
+    (ssizeobjargproc)list_ass_item,             /* sq_ass_item 通过索引设置列表项*/
+    0,                                          /* sq_ass_slice 序列切片赋值操作的函数指针，未实现*/
+    (objobjproc)list_contains,                  /* sq_contains 检查列表是否包含某项*/
+    (binaryfunc)list_inplace_concat,            /* sq_inplace_concat 实现列表就地连接操作（+=）*/
+    (ssizeargfunc)list_inplace_repeat,          /* sq_inplace_repeat 实现列表就地重复操作（*=）*/
 };
 
 static PyObject *
@@ -2986,8 +3000,8 @@ list_ass_subscript(PyListObject* self, PyObject* item, PyObject* value)
 
 static PyMappingMethods list_as_mapping = {
     (lenfunc)list_length,
-    (binaryfunc)list_subscript,
-    (objobjargproc)list_ass_subscript
+    (binaryfunc)list_subscript, // 通过键（索引或切片）访问列表项
+    (objobjargproc)list_ass_subscript //通过键（索引或切片）设置列表项。
 };
 
 PyTypeObject PyList_Type = {

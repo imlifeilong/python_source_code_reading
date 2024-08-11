@@ -970,7 +970,38 @@ _localdummy_destroyed(PyObject *localweakref, PyObject *dummyweakref)
 }
 
 /* Module functions */
+/*
+bootstate 是用于保存启动线程所需状态的结构体。
+它存储了与新线程相关的 Python 解释器状态、要在线程中调用的 Python 函数及其参数，
+以及线程状态。这些数据会在新线程启动时传递给线程启动函数
 
+PyInterpreterState *interp;
+
+解释器状态：指向当前 Python 解释器的状态对象 (PyInterpreterState)。
+作用：保存当前线程所属的解释器状态，使新线程在执行时能够关联到正确的解释器环境。
+解释：在 Python 中，每个线程都隶属于一个解释器状态。这个字段确保新线程能够正确访问和操作其所属解释器的全局资源。
+PyObject *func;
+
+线程要执行的函数：指向要在线程中执行的 Python 可调用对象（通常是一个函数）。
+作用：保存在线程启动后要执行的函数对象。
+解释：当新线程启动时，它将调用 func 指向的 Python 函数，执行具体的任务。
+PyObject *args;
+
+函数参数：指向传递给 func 的参数元组。
+作用：保存传递给要执行的函数的参数。
+解释：这个字段确保新线程在执行 func 时，能够接收到正确的参数元组，按需执行函数逻辑。
+PyObject *keyw;
+
+关键字参数：指向传递给 func 的关键字参数字典（可选）。
+作用：保存传递给要执行的函数的关键字参数。
+解释：如果 func 需要关键字参数，这个字段将保存相应的字典，使得新线程能够正确处理这些参数。如果没有关键字参数，该字段可以为 NULL。
+PyThreadState *tstate;
+
+线程状态：指向新线程的线程状态对象 (PyThreadState)。
+作用：保存新线程的线程状态，以便管理和维护线程的运行环境。
+解释：每个线程在 Python 中都有一个 PyThreadState 对象，该对象维护线程的局部状态，如当前执行的帧、异常信息等。这个字段在新线程启动时被初始化，使线程能够正确运行。
+
+*/
 struct bootstate {
     PyInterpreterState *interp;
     PyObject *func;
@@ -1023,47 +1054,76 @@ t_bootstrap(void *boot_raw)
     PyThread_exit_thread();
 }
 
+// 用于启动一个新的线程。self 是指向调用对象的指针，fargs 是传递给该函数的参数
 static PyObject *
 thread_PyThread_start_new_thread(PyObject *self, PyObject *fargs)
 {
+    /*
+    * func：指向要在线程中调用的 Python 可调用对象（通常是函数）。
+    * args：传递给 func 的参数元组。
+    * keyw：传递给 func 的关键字参数字典（可选）。
+    * boot：一个指向 struct bootstate 的指针，用于保存启动线程所需的状态。
+    * ident：线程标识符。
+    */
     PyObject *func, *args, *keyw = NULL;
     struct bootstate *boot;
     unsigned long ident;
-
+    /*
+    使用 PyArg_UnpackTuple 将传入的参数元组 fargs 解包为 func、args 和 keyw。
+    如果解包失败（即参数不符合要求），则返回 NULL，表示出错
+    */
     if (!PyArg_UnpackTuple(fargs, "start_new_thread", 2, 3,
                            &func, &args, &keyw))
         return NULL;
+    // 检查 func 是否是一个可调用对象。如果不是，则设置 TypeError 异常，并返回 NULL。
     if (!PyCallable_Check(func)) {
         PyErr_SetString(PyExc_TypeError,
                         "first arg must be callable");
         return NULL;
     }
+    // 检查 args 是否是一个元组。如果不是，则设置 TypeError 异常，并返回 NULL。
     if (!PyTuple_Check(args)) {
         PyErr_SetString(PyExc_TypeError,
                         "2nd arg must be a tuple");
         return NULL;
     }
+    // 如果提供了 keyw 参数，检查它是否是一个字典。如果不是，则设置 TypeError 异常，并返回 NULL。
     if (keyw != NULL && !PyDict_Check(keyw)) {
         PyErr_SetString(PyExc_TypeError,
                         "optional 3rd arg must be a dictionary");
         return NULL;
     }
+    // 使用 PyMem_NEW 分配一个新的 struct bootstate 结构体，用于保存启动线程所需的状态。
     boot = PyMem_NEW(struct bootstate, 1);
     if (boot == NULL)
         return PyErr_NoMemory();
+    /*
+    interp：保存当前线程的解释器状态。
+    func：要在线程中调用的 Python 函数。
+    args：传递给 func 的参数元组。
+    keyw：传递给 func 的关键字参数字典（如果有）。
+    */
     boot->interp = PyThreadState_GET()->interp;
     boot->func = func;
     boot->args = args;
     boot->keyw = keyw;
+    // 预分配一个新的 PyThreadState 结构体，用于保存新线程的状态。
+    // 如果分配失败，释放先前分配的 bootstate 结构体，并返回 PyErr_NoMemory()，表示内存不足。
     boot->tstate = _PyThreadState_Prealloc(boot->interp);
     if (boot->tstate == NULL) {
         PyMem_DEL(boot);
         return PyErr_NoMemory();
     }
+    // 增加 func 和 args 的引用计数。Py_XINCREF 还检查 keyw 是否为 NULL，如果不是则增加其引用计数。
+    // 这些引用计数增加是为了确保这些对象在线程执行期间不会被垃圾回收。
     Py_INCREF(func);
     Py_INCREF(args);
     Py_XINCREF(keyw);
+    // 调用 PyEval_InitThreads 来初始化 Python 解释器的多线程支持。
+    // 这会确保 GIL 被初始化，以便正确管理线程之间的同步。
     PyEval_InitThreads(); /* Start the interpreter's thread-awareness */
+    // 使用 PyThread_start_new_thread 启动一个新线程，t_bootstrap 是新线程的启动函数，
+    // boot 是传递给它的参数。如果线程创建失败，清理之前分配的资源（如释放引用计数、清除线程状态），并返回 NULL。
     ident = PyThread_start_new_thread(t_bootstrap, (void*) boot);
     if (ident == PYTHREAD_INVALID_THREAD_ID) {
         PyErr_SetString(ThreadError, "can't start new thread");
@@ -1074,6 +1134,7 @@ thread_PyThread_start_new_thread(PyObject *self, PyObject *fargs)
         PyMem_DEL(boot);
         return NULL;
     }
+    // 如果线程创建成功，返回新线程的标识符 ident，并将其转换为 Python 整数对象。
     return PyLong_FromUnsignedLong(ident);
 }
 
