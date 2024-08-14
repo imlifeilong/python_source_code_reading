@@ -174,23 +174,28 @@ pythread_wrapper(void *arg)
     func(func_arg);
     return NULL;
 }
-
+// 用于在类Unix系统（如Linux、macOS等）上创建新线程的函数，
+// 使用了POSIX线程库（pthread）。它负责设置线程的属性、启动线程，并处理相关的资源管理。
 unsigned long
 PyThread_start_new_thread(void (*func)(void *), void *arg)
 {
-    pthread_t th;
-    int status;
+    // func：一个函数指针，指向线程执行的函数。
+    // arg：传递给线程函数的参数。
+    pthread_t th; // 线程标识符（pthread_t类型）
+    int status; // 记录线程创建状态的变量
 #if defined(THREAD_STACK_SIZE) || defined(PTHREAD_SYSTEM_SCHED_SUPPORTED)
-    pthread_attr_t attrs;
+    pthread_attr_t attrs; // 线程属性对象，用于设置线程的栈大小、调度范围等属性。
 #endif
 #if defined(THREAD_STACK_SIZE)
-    size_t      tss;
+    size_t      tss; // 存储线程栈大小的变量。
 #endif
-
+    // dprintf：输出调试信息，表示函数被调用。
+    // initialized：检查线程库是否已初始化，如果未初始化，则调用PyThread_init_thread()进行初始化。
     dprintf(("PyThread_start_new_thread called\n"));
     if (!initialized)
         PyThread_init_thread();
-
+    // 如果定义了THREAD_STACK_SIZE或PTHREAD_SYSTEM_SCHED_SUPPORTED，
+    // 初始化pthread_attr_t结构体。如果初始化失败，则返回一个无效的线程ID。
 #if defined(THREAD_STACK_SIZE) || defined(PTHREAD_SYSTEM_SCHED_SUPPORTED)
     if (pthread_attr_init(&attrs) != 0)
         return PYTHREAD_INVALID_THREAD_ID;

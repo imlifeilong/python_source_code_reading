@@ -173,29 +173,48 @@ bootstrap(void *call)
     return 0;
 }
 
+// 在Windows上创建一个新的线程，并返回线程的ID。
+// 如果线程创建失败，返回一个无效的线程ID。
+// 在执行过程中，函数会分配内存给线程的参数对象，并根据线程的栈大小启动线程。
 unsigned long
 PyThread_start_new_thread(void (*func)(void *), void *arg)
 {
-    HANDLE hThread;
-    unsigned threadID;
-    callobj *obj;
+    HANDLE hThread; //  用于存储新创建线程的句柄。
+    unsigned threadID; // 用于存储新线程的ID。
+    callobj *obj; // 用于存储传递给新线程的函数和参数。
 
+    // 使用dprintf函数打印调试信息，表明PyThread_start_new_thread函数已被调用。输出包括当前线程的标识符。
     dprintf(("%lu: PyThread_start_new_thread called\n",
              PyThread_get_thread_ident()));
+    // 检查全局变量initialized是否为false，如果是，则调用PyThread_init_thread()函数对线程系统进行初始化。
+    // 这是为了确保线程系统在使用前已经初始化。
     if (!initialized)
         PyThread_init_thread();
 
+    // 使用HeapAlloc函数从进程的堆中分配内存，创建一个callobj结构体。
+    // 这个结构体用于存储线程函数func和它的参数arg。
+    // 如果分配失败，则返回一个无效的线程ID（PYTHREAD_INVALID_THREAD_ID）。
     obj = (callobj*)HeapAlloc(GetProcessHeap(), 0, sizeof(*obj));
     if (!obj)
         return PYTHREAD_INVALID_THREAD_ID;
+    // 将传入的函数指针func和参数arg存储到obj结构体中，以便新线程启动时可以调用。
     obj->func = func;
     obj->arg = arg;
+    // 通过调用PyThreadState_GET()获取当前线程的状态。如果获取到有效的线程状态，则从中提取出解释器设置的线程栈大小。
     PyThreadState *tstate = PyThreadState_GET();
+    // 
     size_t stacksize = tstate ? tstate->interp->pythread_stacksize : 0;
+    // 调用_beginthreadex函数创建一个新线程
+    // 栈大小（stacksize），如果没有指定，则使用默认大小
+    // 线程入口函数（bootstrap），即线程的主函数。
+    // 传递给新线程的参数（obj，其中包含了线程的函数和参数）。
+    // 获取新线程的ID并存储在threadID变量中。
     hThread = (HANDLE)_beginthreadex(0,
                       Py_SAFE_DOWNCAST(stacksize, Py_ssize_t, unsigned int),
                       bootstrap, obj,
                       0, &threadID);
+    // 如果_beginthreadex返回0，表示线程创建失败。此时，会打印错误信息（包括错误码errno），
+    // 释放之前分配的内存obj，并将threadID设置为无效值（(unsigned)-1）。
     if (hThread == 0) {
         /* I've seen errno == EAGAIN here, which means "there are
          * too many threads".
@@ -207,6 +226,8 @@ PyThread_start_new_thread(void (*func)(void *), void *arg)
         HeapFree(GetProcessHeap(), 0, obj);
     }
     else {
+        // 如果线程创建成功，会打印成功的调试信息（包括新线程的句柄），
+        // 并使用CloseHandle函数关闭线程句柄，因为在线程创建后不再需要它。
         dprintf(("%lu: PyThread_start_new_thread succeeded: %p\n",
                  PyThread_get_thread_ident(), (void*)hThread));
         CloseHandle(hThread);

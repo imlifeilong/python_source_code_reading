@@ -349,12 +349,20 @@ inline int _Py_atomic_load_32bit(volatile int* value, int order) {
     }
     return old;
 }
-
+// 根据变量的大小（32 位或 64 位）选择合适的函数来执行原子存储操作，
+// 并支持指定的内存顺序。这样可以确保在多线程环境中对共享变量的存储操作是线程安全的，
+// 并且满足所需的内存模型约束。
 #define _Py_atomic_store_explicit(ATOMIC_VAL, NEW_VAL, ORDER) \
   if (sizeof(*ATOMIC_VAL._value) == 8) { \
     _Py_atomic_store_64bit((volatile long long*)ATOMIC_VAL._value, NEW_VAL, ORDER) } else { \
     _Py_atomic_store_32bit((volatile long*)ATOMIC_VAL._value, NEW_VAL, ORDER) }
 
+// 用于以指定的内存顺序从原子变量 ATOMIC_VAL 中读取值。这是为了在多线程环境中保证数据读取的原子性和线程安全性。
+// 通过 sizeof(*(ATOMIC_VAL._value)) 检查 ATOMIC_VAL 所指向的值的大小，以确定它是 8 字节（64 位）还是 4 字节（32 位）
+// _Py_atomic_load_64bit：如果 ATOMIC_VAL 是 64 位的，则调用此函数读取值。
+// _Py_atomic_load_32bit：如果 ATOMIC_VAL 是 32 位的，则调用此函数读取值。
+// 这两个函数都需要传入一个指向值的指针，并指定内存顺序（ORDER），确保读取操作是线程安全的。
+// ORDER 参数指定了内存顺序（Memory Order），例如可能是 _Py_memory_order_acquire 或 _Py_memory_order_relaxed 等，这个参数控制了在读取时的内存屏障行为。
 #define _Py_atomic_load_explicit(ATOMIC_VAL, ORDER) \
   ( \
     sizeof(*(ATOMIC_VAL._value)) == 8 ? \
@@ -526,9 +534,13 @@ typedef struct _Py_atomic_int {
     _Py_atomic_load_explicit(ATOMIC_VAL, _Py_memory_order_seq_cst)
 
 /* Python-local extensions */
-
+// 内存顺序将 NEW_VAL 存储到原子变量 ATOMIC_VAL 中。这种存储操作是线程安全的，但不会强制执行任何特定的内存顺序约束
+// _Py_memory_order_relaxed 是一种内存顺序选项，它不会引入任何内存屏障。使用这种顺序意味着操作仅保证存储的原子性，
+// 而不保证存储操作在多个线程中的执行顺序或可见性。这适用于对性能要求较高且不依赖顺序性的场景
 #define _Py_atomic_store_relaxed(ATOMIC_VAL, NEW_VAL) \
     _Py_atomic_store_explicit(ATOMIC_VAL, NEW_VAL, _Py_memory_order_relaxed)
+// 内存顺序从原子变量 ATOMIC_VAL 中加载（读取）值。此加载操作是线程安全的，同样不会强制执行任何特定的内存顺序约束
+// _Py_memory_order_relaxed 选项仅保证读取的原子性，不会引入内存屏障，也不保证多个线程间的操作顺序或可见性
 #define _Py_atomic_load_relaxed(ATOMIC_VAL) \
     _Py_atomic_load_explicit(ATOMIC_VAL, _Py_memory_order_relaxed)
 #endif  /* Py_BUILD_CORE */
