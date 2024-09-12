@@ -241,28 +241,39 @@ static void drop_gil(PyThreadState *tstate)
     }
 #endif
 }
-
+/*
+ * 获取全局解释器锁（GIL）
+ *
+ * 如果传入的线程状态为空，函数将终止并报告致命错误。
+ * 否则，尝试获取GIL，并在获取成功后更新相关状态。
+ */
 static void take_gil(PyThreadState *tstate)
 {
     int err;
+    // 如果传入的线程状态为空，报告致命错误
     if (tstate == NULL)
         Py_FatalError("take_gil: NULL tstate");
 
+    // 保存当前的errno值
     err = errno;
+    // 获取GIL的互斥锁，确保线程安全地检查和修改GIL相关状态
     MUTEX_LOCK(_PyRuntime.ceval.gil.mutex);
-
+    // 检查GIL是否已经被锁定，如果没有被锁定，直接跳到_ready标签处
     if (!_Py_atomic_load_relaxed(&_PyRuntime.ceval.gil.locked))
         goto _ready;
 
+    // GIL还被某个线程占用，循环等待直到GIL被释放
     while (_Py_atomic_load_relaxed(&_PyRuntime.ceval.gil.locked)) {
         int timed_out = 0;
         unsigned long saved_switchnum;
-
+        // 保存当前的GIL切换次数
         saved_switchnum = _PyRuntime.ceval.gil.switch_number;
+        // 等待GIL的条件变量，带有超时
         COND_TIMED_WAIT(_PyRuntime.ceval.gil.cond, _PyRuntime.ceval.gil.mutex,
                         INTERVAL, timed_out);
         /* If we timed out and no switch occurred in the meantime, it is time
            to ask the GIL-holding thread to drop it. */
+        // 如果超时并且GIL没有被切换，设置GIL释放请求
         if (timed_out &&
             _Py_atomic_load_relaxed(&_PyRuntime.ceval.gil.locked) &&
             _PyRuntime.ceval.gil.switch_number == saved_switchnum) {
@@ -273,12 +284,15 @@ _ready:
 #ifdef FORCE_SWITCHING
     /* This mutex must be taken before modifying
        _PyRuntime.ceval.gil.last_holder (see drop_gil()). */
+    // 获取GIL切换互斥锁，确保在修改last_holder之前锁定
     MUTEX_LOCK(_PyRuntime.ceval.gil.switch_mutex);
 #endif
     /* We now hold the GIL */
+    // 现在我们持有GIL，locked如果是0表示GIL被占用，1表示已经被持有
     _Py_atomic_store_relaxed(&_PyRuntime.ceval.gil.locked, 1);
     _Py_ANNOTATE_RWLOCK_ACQUIRED(&_PyRuntime.ceval.gil.locked, /*is_write=*/1);
 
+    // 如果当前线程不是最后持有GIL的线程，更新last_holder并增加切换次数
     if (tstate != (PyThreadState*)_Py_atomic_load_relaxed(
                     &_PyRuntime.ceval.gil.last_holder))
     {
@@ -288,17 +302,22 @@ _ready:
     }
 
 #ifdef FORCE_SWITCHING
+    // 发信号通知给其他的等待线程，GIL切换已经完成
     COND_SIGNAL(_PyRuntime.ceval.gil.switch_cond);
+    // 释放GIL切换互斥锁
     MUTEX_UNLOCK(_PyRuntime.ceval.gil.switch_mutex);
 #endif
+    // 如果有GIL释放请求，重置请求
     if (_Py_atomic_load_relaxed(&_PyRuntime.ceval.gil_drop_request)) {
         RESET_GIL_DROP_REQUEST();
     }
+    // 如果当前线程有异步异常，处理它
     if (tstate->async_exc != NULL) {
         _PyEval_SignalAsyncExc();
     }
-
+    // 释放GIL的互斥锁
     MUTEX_UNLOCK(_PyRuntime.ceval.gil.mutex);
+    // 恢复之前保存的errno值
     errno = err;
 }
 

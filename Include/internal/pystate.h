@@ -74,16 +74,19 @@ PyAPI_FUNC(void) _PyInterpreterState_IDIncref(PyInterpreterState *);
 PyAPI_FUNC(void) _PyInterpreterState_IDDecref(PyInterpreterState *);
 
 /* Full Python runtime state */
-
+// 这个结构体 _PyRuntimeState 是 CPython 解释器的运行时状态，
+// 包含了多个与解释器执行和管理相关的子状态。
 typedef struct pyruntimestate {
-    int initialized;
-    int core_initialized;
-    PyThreadState *finalizing;
+    int initialized; // 如果解释器已初始化，则为1，否则为0。
+    int core_initialized; // 如果解释器的核心部分已初始化，则为1，否则为0。
+    // 用于追踪正在被终止的线程状态
+    PyThreadState *finalizing; // 指向当前正在终止的线程状态对象（如果有的话）。
 
+    // 解释器相关的结构体
     struct pyinterpreters {
-        PyThread_type_lock mutex;
-        PyInterpreterState *head;
-        PyInterpreterState *main;
+        PyThread_type_lock mutex; // 用于保护下面的解释器列表的互斥锁。
+        PyInterpreterState *head; // 链表头，指向第一个解释器状态对象。
+        PyInterpreterState *main; // 指向主解释器状态对象，即ID为0的解释器。
         /* _next_interp_id is an auto-numbered sequence of small
            integers.  It gets initialized in _PyInterpreterState_Init(),
            which is called in Py_Initialize(), and used in
@@ -91,18 +94,25 @@ typedef struct pyruntimestate {
            indicates an error occurred.  The main interpreter will
            always have an ID of 0.  Overflow results in a RuntimeError.
            If that becomes a problem later then we can adjust, e.g. by
-           using a Python int. */
-        int64_t next_id;
+           using a Python int. 
+            _next_interp_id 是一个自动编号的序列，通常是小整数。
+           它在 _PyInterpreterState_Init() 中初始化（该函数在 Py_Initialize() 中调用），
+           并在 PyInterpreterState_New() 中使用。负的解释器ID表示发生了错误。
+           主解释器的ID永远为0。ID溢出时会导致RuntimeError。
+           如果以后这成为一个问题，我们可以调整，例如使用Python的int类型。*/
+        int64_t next_id; // 下一个将要分配的解释器ID。
     } interpreters;
 
-#define NEXITFUNCS 32
-    void (*exitfuncs[NEXITFUNCS])(void);
-    int nexitfuncs;
+    // 用于存储退出时调用的函数指针数组
+#define NEXITFUNCS 32 // 允许注册的最大退出函数数量。
+    void (*exitfuncs[NEXITFUNCS])(void); // 保存退出时需要执行的函数指针数组。
+    int nexitfuncs; // 当前注册的退出函数数量。
 
-    struct _gc_runtime_state gc;
-    struct _warnings_runtime_state warnings;
-    struct _ceval_runtime_state ceval;
-    struct _gilstate_runtime_state gilstate;
+    // 内存管理和垃圾回收的状态信息
+    struct _gc_runtime_state gc; // 垃圾回收器的运行时状态。
+    struct _warnings_runtime_state warnings;  // 警告系统的运行时状态。
+    struct _ceval_runtime_state ceval; // CPython的字节码执行器的运行时状态。
+    struct _gilstate_runtime_state gilstate; // GIL（全局解释器锁）的运行时状态。
 
     // XXX Consolidate globals found via the check-c-globals script.
 } _PyRuntimeState;

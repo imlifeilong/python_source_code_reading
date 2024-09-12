@@ -41,20 +41,25 @@ _STATE_TO_DESCRIPTION_MAP = {
 # Logger for internal use by the futures package.
 LOGGER = logging.getLogger("concurrent.futures")
 
+
 class Error(Exception):
     """Base class for all future-related exceptions."""
     pass
+
 
 class CancelledError(Error):
     """The Future was cancelled."""
     pass
 
+
 class TimeoutError(Error):
     """The operation exceeded the given deadline."""
     pass
 
+
 class _Waiter(object):
     """Provides the event that wait() and as_completed() block on."""
+
     def __init__(self):
         self.event = threading.Event()
         self.finished_futures = []
@@ -67,6 +72,7 @@ class _Waiter(object):
 
     def add_cancelled(self, future):
         self.finished_futures.append(future)
+
 
 class _AsCompletedWaiter(_Waiter):
     """Used by as_completed()."""
@@ -90,6 +96,7 @@ class _AsCompletedWaiter(_Waiter):
             super(_AsCompletedWaiter, self).add_cancelled(future)
             self.event.set()
 
+
 class _FirstCompletedWaiter(_Waiter):
     """Used by wait(return_when=FIRST_COMPLETED)."""
 
@@ -104,6 +111,7 @@ class _FirstCompletedWaiter(_Waiter):
     def add_cancelled(self, future):
         super().add_cancelled(future)
         self.event.set()
+
 
 class _AllCompletedWaiter(_Waiter):
     """Used by wait(return_when=FIRST_EXCEPTION and ALL_COMPLETED)."""
@@ -135,6 +143,7 @@ class _AllCompletedWaiter(_Waiter):
         super().add_cancelled(future)
         self._decrement_pending_calls()
 
+
 class _AcquireFutures(object):
     """A context manager that does an ordered acquire of Future conditions."""
 
@@ -149,6 +158,7 @@ class _AcquireFutures(object):
         for future in self.futures:
             future._condition.release()
 
+
 def _create_and_install_waiters(fs, return_when):
     if return_when == _AS_COMPLETED:
         waiter = _AsCompletedWaiter()
@@ -156,7 +166,7 @@ def _create_and_install_waiters(fs, return_when):
         waiter = _FirstCompletedWaiter()
     else:
         pending_count = sum(
-                f._state not in [CANCELLED_AND_NOTIFIED, FINISHED] for f in fs)
+            f._state not in [CANCELLED_AND_NOTIFIED, FINISHED] for f in fs)
 
         if return_when == FIRST_EXCEPTION:
             waiter = _AllCompletedWaiter(pending_count, stop_on_exception=True)
@@ -218,8 +228,8 @@ def as_completed(fs, timeout=None):
     total_futures = len(fs)
     with _AcquireFutures(fs):
         finished = set(
-                f for f in fs
-                if f._state in [CANCELLED_AND_NOTIFIED, FINISHED])
+            f for f in fs
+            if f._state in [CANCELLED_AND_NOTIFIED, FINISHED])
         pending = fs - finished
         waiter = _create_and_install_waiters(fs, _AS_COMPLETED)
     finished = list(finished)
@@ -234,7 +244,7 @@ def as_completed(fs, timeout=None):
                 wait_timeout = end_time - time.monotonic()
                 if wait_timeout < 0:
                     raise TimeoutError(
-                            '%d (of %d) futures unfinished' % (
+                        '%d (of %d) futures unfinished' % (
                             len(pending), total_futures))
 
             waiter.event.wait(wait_timeout)
@@ -255,8 +265,11 @@ def as_completed(fs, timeout=None):
             with f._condition:
                 f._waiters.remove(waiter)
 
+
 DoneAndNotDoneFutures = collections.namedtuple(
-        'DoneAndNotDoneFutures', 'done not_done')
+    'DoneAndNotDoneFutures', 'done not_done')
+
+
 def wait(fs, timeout=None, return_when=ALL_COMPLETED):
     """Wait for the futures in the given sequence to complete.
 
@@ -306,22 +319,23 @@ def wait(fs, timeout=None, return_when=ALL_COMPLETED):
     done.update(waiter.finished_futures)
     return DoneAndNotDoneFutures(done, set(fs) - done)
 
+
 class Future(object):
     """Represents the result of an asynchronous computation."""
 
     def __init__(self):
         """Initializes the future. Should not be called by clients."""
-        self._condition = threading.Condition()
-        self._state = PENDING
-        self._result = None
-        self._exception = None
-        self._waiters = []
-        self._done_callbacks = []
+        self._condition = threading.Condition()  # 用于线程同步的条件变量
+        self._state = PENDING  # 初始状态为 PENDING，表示尚未开始执行
+        self._result = None  # 存储异步计算的结果
+        self._exception = None  # 如果异步计算中发生异常，将异常存储在此处
+        self._waiters = []  # 其他可能等待此 Future 完成的线程或对象
+        self._done_callbacks = []  # 当 Future 完成后应调用的回调函数列表
 
     def _invoke_callbacks(self):
         for callback in self._done_callbacks:
             try:
-                callback(self)
+                callback(self)  # 调用回调函数并传入当前 Future 对象
             except Exception:
                 LOGGER.exception('exception calling callback for %r', self)
 
@@ -341,53 +355,62 @@ class Future(object):
                         _STATE_TO_DESCRIPTION_MAP[self._state],
                         self._result.__class__.__name__)
             return '<%s at %#x state=%s>' % (
-                    self.__class__.__name__,
-                    id(self),
-                   _STATE_TO_DESCRIPTION_MAP[self._state])
+                self.__class__.__name__,
+                id(self),
+                _STATE_TO_DESCRIPTION_MAP[self._state])
 
     def cancel(self):
         """Cancel the future if possible.
 
         Returns True if the future was cancelled, False otherwise. A future
         cannot be cancelled if it is running or has already completed.
+        尝试取消 Future 的执行。
+        如果成功取消，返回 True；如果 Future 已经开始执行或已经完成，则返回 False。
         """
         with self._condition:
             if self._state in [RUNNING, FINISHED]:
-                return False
+                return False  # 不能取消正在执行或已完成的 Future
 
             if self._state in [CANCELLED, CANCELLED_AND_NOTIFIED]:
-                return True
+                return True  # 如果已经取消，则直接返回 True
 
-            self._state = CANCELLED
-            self._condition.notify_all()
+            self._state = CANCELLED  # 将状态更新为 CANCELLED
+            self._condition.notify_all()  # 通知所有等待的线程
 
-        self._invoke_callbacks()
+        self._invoke_callbacks()  # 调用所有注册的回调函数
         return True
 
     def cancelled(self):
-        """Return True if the future was cancelled."""
+        """Return True if the future was cancelled.
+        检查 Future 是否被取消。
+        """
         with self._condition:
             return self._state in [CANCELLED, CANCELLED_AND_NOTIFIED]
 
     def running(self):
-        """Return True if the future is currently executing."""
+        """Return True if the future is currently executing.
+        检查 Future 是否正在执行。
+        """
         with self._condition:
             return self._state == RUNNING
 
     def done(self):
-        """Return True of the future was cancelled or finished executing."""
+        """Return True of the future was cancelled or finished executing.
+        检查 Future 是否已经完成（包括取消和正常完成）。
+        """
         with self._condition:
             return self._state in [CANCELLED, CANCELLED_AND_NOTIFIED, FINISHED]
 
     def __get_result(self):
+        # 获取结果，如果有异常则抛出异常。
         if self._exception:
-            raise self._exception
+            raise self._exception  # 如果有异常，抛出异常
         else:
-            return self._result
+            return self._result  # 否则返回结果
 
     def add_done_callback(self, fn):
         """Attaches a callable that will be called when the future finishes.
-
+        当 Future 完成时，注册一个可调用对象（回调函数）。
         Args:
             fn: A callable that will be called with this future as its only
                 argument when the future completes or is cancelled. The callable
@@ -395,23 +418,24 @@ class Future(object):
                 it was added. If the future has already completed or been
                 cancelled then the callable will be called immediately. These
                 callables are called in the order that they were added.
+            fn: 一个可调用对象，当 Future 完成或取消时将被调用。回调函数将以此 Future 作为唯一参数。
         """
         with self._condition:
             if self._state not in [CANCELLED, CANCELLED_AND_NOTIFIED, FINISHED]:
-                self._done_callbacks.append(fn)
+                self._done_callbacks.append(fn)  # 如果 Future 尚未完成，添加回调函数到列表
                 return
         try:
-            fn(self)
+            fn(self)  # 如果 Future 已经完成，直接调用回调函数
         except Exception:
             LOGGER.exception('exception calling callback for %r', self)
 
     def result(self, timeout=None):
         """Return the result of the call that the future represents.
-
+        返回 Future 表示的调用结果。
         Args:
             timeout: The number of seconds to wait for the result if the future
                 isn't done. If None, then there is no limit on the wait time.
-
+            timeout: 等待结果的超时时间（秒）。如果为 None，则无限期等待。
         Returns:
             The result of the call that the future represents.
 
@@ -420,25 +444,28 @@ class Future(object):
             TimeoutError: If the future didn't finish executing before the given
                 timeout.
             Exception: If the call raised then that exception will be raised.
+            CancelledError: 如果 Future 被取消。
+            TimeoutError: 如果 Future 在给定的超时时间内未完成。
+            Exception: 如果调用中发生异常，该异常将被抛出。
         """
         with self._condition:
             if self._state in [CANCELLED, CANCELLED_AND_NOTIFIED]:
-                raise CancelledError()
+                raise CancelledError()  # 如果 Future 被取消，抛出 CancelledError
             elif self._state == FINISHED:
-                return self.__get_result()
+                return self.__get_result()  # 如果 Future 已经完成，返回结果
 
-            self._condition.wait(timeout)
+            self._condition.wait(timeout)  # 等待任务完成或超时
 
             if self._state in [CANCELLED, CANCELLED_AND_NOTIFIED]:
-                raise CancelledError()
+                raise CancelledError()  # 如果 Future 被取消，抛出 CancelledError
             elif self._state == FINISHED:
-                return self.__get_result()
+                return self.__get_result()  # 如果 Future 已经完成，返回结果
             else:
-                raise TimeoutError()
+                raise TimeoutError()  # 超时未完成，抛出 TimeoutError
 
     def exception(self, timeout=None):
         """Return the exception raised by the call that the future represents.
-
+        返回 Future 表示的调用引发的异常。
         Args:
             timeout: The number of seconds to wait for the exception if the
                 future isn't done. If None, then there is no limit on the wait
@@ -447,7 +474,7 @@ class Future(object):
         Returns:
             The exception raised by the call that the future represents or None
             if the call completed without raising.
-
+            Future 表示的调用引发的异常，或者如果调用正常完成则返回 None。
         Raises:
             CancelledError: If the future was cancelled.
             TimeoutError: If the future didn't finish executing before the given
@@ -492,17 +519,37 @@ class Future(object):
         Raises:
             RuntimeError: if this method was already called or if set_result()
                 or set_exception() was called.
+        将 Future 标记为正在运行，或处理任何取消通知。
+
+        仅应由 Executor 实现和单元测试使用。
+
+        如果 Future 已被取消（调用了 cancel() 且返回 True），则任何等待 Future 完成的线程
+        都会被通知，并返回 False。
+
+        如果 Future 未被取消，则将其状态设置为 RUNNING（未来调用 running() 将返回 True），
+        并返回 True。
+
+        此方法应由 Executor 实现调用，在执行与此 Future 关联的工作之前调用。
+        如果此方法返回 False，则不应执行该工作。
+
+        返回:
+            如果 Future 被取消，则返回 False，否则返回 True。
+
+        异常:
+            RuntimeError: 如果此方法已经被调用，或 set_result() 或 set_exception() 已被调用。
+
         """
         with self._condition:
             if self._state == CANCELLED:
-                self._state = CANCELLED_AND_NOTIFIED
+                self._state = CANCELLED_AND_NOTIFIED # 将状态更新为已取消并通知
                 for waiter in self._waiters:
                     waiter.add_cancelled(self)
                 # self._condition.notify_all() is not necessary because
                 # self.cancel() triggers a notification.
+                # 无需调用 self._condition.notify_all()，因为 cancel() 会触发通知。
                 return False
             elif self._state == PENDING:
-                self._state = RUNNING
+                self._state = RUNNING # 将状态更新为正在运行
                 return True
             else:
                 LOGGER.critical('Future %s in unexpected state: %s',
@@ -516,12 +563,12 @@ class Future(object):
         Should only be used by Executor implementations and unit tests.
         """
         with self._condition:
-            self._result = result
-            self._state = FINISHED
+            self._result = result  # 设置结果
+            self._state = FINISHED  # 将状态更新为已完成
             for waiter in self._waiters:
                 waiter.add_result(self)
-            self._condition.notify_all()
-        self._invoke_callbacks()
+            self._condition.notify_all()  # 通知所有等待的线程
+        self._invoke_callbacks()  # 调用所有注册的回调函数
 
     def set_exception(self, exception):
         """Sets the result of the future as being the given exception.
@@ -535,6 +582,7 @@ class Future(object):
                 waiter.add_exception(self)
             self._condition.notify_all()
         self._invoke_callbacks()
+
 
 class Executor(object):
     """This is an abstract base class for concrete asynchronous executors."""
@@ -555,7 +603,7 @@ class Executor(object):
                             "needs an argument")
         elif 'fn' not in kwargs:
             raise TypeError('submit expected at least 1 positional argument, '
-                            'got %d' % (len(args)-1))
+                            'got %d' % (len(args) - 1))
 
         raise NotImplementedError()
 
@@ -601,6 +649,7 @@ class Executor(object):
             finally:
                 for future in fs:
                     future.cancel()
+
         return result_iterator()
 
     def shutdown(self, wait=True):

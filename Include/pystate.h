@@ -208,57 +208,65 @@ typedef struct _err_stackitem {
 
 } _PyErr_StackItem;
 
-
+// 每个线程在执行 Python 代码时所需的全部状态信息。
 typedef struct _ts {
     /* See Python/ceval.c for comments explaining most fields */
 
-    struct _ts *prev;
-    struct _ts *next;
-    PyInterpreterState *interp;
+    struct _ts *prev;   // 指向前一个线程状态的指针
+    struct _ts *next;   // 指向下一个线程状态的指针
+    PyInterpreterState *interp; // 解释器状态，表示该线程所属的解释器
 
     /* Borrowed reference to the current frame (it can be NULL) */
-    struct _frame *frame;
-    int recursion_depth;
-    char overflowed; /* The stack has overflowed. Allow 50 more calls
+    struct _frame *frame;    // 当前的栈帧
+    int recursion_depth;    // 递归深度，用于限制递归调用以避免栈溢出
+    char overflowed; /* 如果栈溢出，则设置为 1，并允许最多再调用 50 次以处理运行时错误 The stack has overflowed. Allow 50 more calls
                         to handle the runtime error. */
-    char recursion_critical; /* The current calls must not cause
+    char recursion_critical; /* 当前调用必须不导致栈溢出The current calls must not cause
                                 a stack overflow. */
-    int stackcheck_counter;
+    int stackcheck_counter; // 用于跟踪栈深度的计数器
 
     /* 'tracing' keeps track of the execution depth when tracing/profiling.
        This is to prevent the actual trace/profile code from being recorded in
-       the trace/profile. */
-    int tracing;
-    int use_tracing;
+       the trace/profile. 'tracing' 跟踪在启用追踪/分析时的执行深度。
+     * 这可以防止实际的追踪/分析代码被记录在追踪/分析中。*/
+    int tracing;    // 表示是否启用了追踪
+    int use_tracing;    // 表示是否正在使用追踪
 
-    Py_tracefunc c_profilefunc;
-    Py_tracefunc c_tracefunc;
-    PyObject *c_profileobj;
-    PyObject *c_traceobj;
+    // C 语言级别的性能分析和追踪函数及其对应的对象
+    Py_tracefunc c_profilefunc; // C 语言级别的性能分析函数指针
+    Py_tracefunc c_tracefunc;   // C 语言级别的追踪函数指针
+    PyObject* c_profileobj;     // 关联的性能分析对象
+    PyObject* c_traceobj;       // 关联的追踪对象
 
-    /* The exception currently being raised */
-    PyObject *curexc_type;
-    PyObject *curexc_value;
-    PyObject *curexc_traceback;
+    /*  The exception currently being raised */
+    /* 当前正在引发的异常 */
+    PyObject* curexc_type;      // 当前异常的类型
+    PyObject* curexc_value;     // 当前异常的值
+    PyObject* curexc_traceback; // 当前异常的追踪栈
 
     /* The exception currently being handled, if no coroutines/generators
      * are present. Always last element on the stack referred to be exc_info.
      */
-    _PyErr_StackItem exc_state;
+     /* 当前正在处理的异常，如果没有协程/生成器时适用。
+      * 始终是异常栈中的最后一个元素，通过 exc_info 引用。 */
+    _PyErr_StackItem exc_state; // 当前处理的异常状态
 
     /* Pointer to the top of the stack of the exceptions currently
      * being handled */
-    _PyErr_StackItem *exc_info;
+     /* 指向当前处理的异常栈顶的指针 */
+    _PyErr_StackItem* exc_info; // 指向当前处理的异常栈项的指针
 
-    PyObject *dict;  /* Stores per-thread state */
+    /* 每个线程的字典，用于存储线程的状态 */
+    PyObject* dict;             // 每个线程的状态字典
 
-    int gilstate_counter;
+    int gilstate_counter;       // 跟踪线程何时持有 GIL（全局解释器锁）
 
-    PyObject *async_exc; /* Asynchronous exception to raise */
-    unsigned long thread_id; /* Thread id where this tstate was created */
+    PyObject* async_exc;        // 异步异常，用于在下一次可能的时候引发
+    unsigned long thread_id;    // 该线程状态所属线程的线程 ID
 
-    int trash_delete_nesting;
-    PyObject *trash_delete_later;
+    /* 垃圾回收时删除对象时使用的嵌套计数 */
+    int trash_delete_nesting;   // 垃圾回收的嵌套计数
+    PyObject* trash_delete_later; // 垃圾回收时稍后删除的对象
 
     /* Called when a thread state is deleted normally, but not when it
      * is destroyed after fork().
@@ -283,22 +291,24 @@ typedef struct _ts {
      * weakref-to-lock (on_delete_data) argument, and release_sentinel releases
      * the indirectly held lock.
      */
-    void (*on_delete)(void *);
-    void *on_delete_data;
+     /* 正常情况下，当线程状态被删除时调用的函数，
+      * 但在 fork() 之后线程状态被销毁时不会调用。 */
+    void (*on_delete)(void*);  // 在线程状态删除时调用的函数指针
+    void* on_delete_data;       // 线程状态删除时传递给 on_delete 函数的数据
 
-    int coroutine_origin_tracking_depth;
+    int coroutine_origin_tracking_depth; // 用于协程起源跟踪的深度
 
-    PyObject *coroutine_wrapper;
-    int in_coroutine_wrapper;
+    PyObject* coroutine_wrapper;   // 协程包装器对象
+    int in_coroutine_wrapper;      // 是否正在协程包装器中
 
-    PyObject *async_gen_firstiter;
-    PyObject *async_gen_finalizer;
+    PyObject* async_gen_firstiter; // 异步生成器第一次迭代的对象
+    PyObject* async_gen_finalizer; // 异步生成器终结器对象
 
-    PyObject *context;
-    uint64_t context_ver;
+    PyObject* context;         // 当前上下文对象
+    uint64_t context_ver;      // 上下文版本号
 
-    /* Unique thread state id. */
-    uint64_t id;
+    /* 唯一的线程状态 ID */
+    uint64_t id;               // 线程状态 ID
 
     /* XXX signal handlers should also be here */
 

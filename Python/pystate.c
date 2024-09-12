@@ -355,82 +355,91 @@ threadstate_getframe(PyThreadState *self)
 {
     return self->frame;
 }
-
+// 定义一个函数，用于创建一个新的线程状态对象，并可选择性地初始化它
 static PyThreadState *
 new_threadstate(PyInterpreterState *interp, int init)
 {
+    // 使用PyMem_RawMalloc为PyThreadState结构体分配内存
     PyThreadState *tstate = (PyThreadState *)PyMem_RawMalloc(sizeof(PyThreadState));
 
+    // 如果_PyThreadState_GetFrame函数指针未设置，则将其设置为threadstate_getframe  
+    // 这可能是为了确保即使在多线程环境中也能正确地获取当前线程的栈帧
     if (_PyThreadState_GetFrame == NULL)
         _PyThreadState_GetFrame = threadstate_getframe;
 
+    // 如果分配内存成功
     if (tstate != NULL) {
+        // 将解释器状态指针赋值给 tstate
         tstate->interp = interp;
 
-        tstate->frame = NULL;
-        tstate->recursion_depth = 0;
-        tstate->overflowed = 0;
-        tstate->recursion_critical = 0;
-        tstate->stackcheck_counter = 0;
-        tstate->tracing = 0;
-        tstate->use_tracing = 0;
-        tstate->gilstate_counter = 0;
-        tstate->async_exc = NULL;
-        tstate->thread_id = PyThread_get_thread_ident();
+        // 初始化线程状态结构中的各个字段
+        tstate->frame = NULL;  // 当前执行帧指针，初始化为空
+        tstate->recursion_depth = 0;  // 当前递归深度，初始化为 0
+        tstate->overflowed = 0;  // 用于检查递归溢出，初始化为 0
+        tstate->recursion_critical = 0;  // 标志位，初始化为 0
+        tstate->stackcheck_counter = 0;  // 栈检查计数器，初始化为 0
+        tstate->tracing = 0;  // 是否在进行跟踪，初始化为 0
+        tstate->use_tracing = 0;  // 是否使用跟踪功能，初始化为 0
+        tstate->gilstate_counter = 0;  // GIL 计数器，初始化为 0
+        tstate->async_exc = NULL;  // 异步异常指针，初始化为空
+        tstate->thread_id = PyThread_get_thread_ident();  // 获取线程唯一标识符
 
-        tstate->dict = NULL;
+        tstate->dict = NULL;  // 用于存储线程局部变量的字典，初始化为空
 
-        tstate->curexc_type = NULL;
-        tstate->curexc_value = NULL;
-        tstate->curexc_traceback = NULL;
+        tstate->curexc_type = NULL;  // 当前异常类型指针，初始化为空
+        tstate->curexc_value = NULL;  // 当前异常值指针，初始化为空
+        tstate->curexc_traceback = NULL;  // 当前异常回溯指针，初始化为空
 
-        tstate->exc_state.exc_type = NULL;
-        tstate->exc_state.exc_value = NULL;
-        tstate->exc_state.exc_traceback = NULL;
-        tstate->exc_state.previous_item = NULL;
-        tstate->exc_info = &tstate->exc_state;
+        // 初始化异常状态结构中的各个字段
+        tstate->exc_state.exc_type = NULL;  // 异常类型指针，初始化为空
+        tstate->exc_state.exc_value = NULL;  // 异常值指针，初始化为空
+        tstate->exc_state.exc_traceback = NULL;  // 异常回溯指针，初始化为空
+        tstate->exc_state.previous_item = NULL;  // 上一个异常状态指针，初始化为空
+        tstate->exc_info = &tstate->exc_state;  // 异常信息指针，指向异常状态
 
-        tstate->c_profilefunc = NULL;
-        tstate->c_tracefunc = NULL;
-        tstate->c_profileobj = NULL;
-        tstate->c_traceobj = NULL;
+        tstate->c_profilefunc = NULL;  // 配置文件函数指针，初始化为空
+        tstate->c_tracefunc = NULL;  // 跟踪函数指针，初始化为空
+        tstate->c_profileobj = NULL;  // 配置文件对象指针，初始化为空
+        tstate->c_traceobj = NULL;  // 跟踪对象指针，初始化为空
 
-        tstate->trash_delete_nesting = 0;
-        tstate->trash_delete_later = NULL;
-        tstate->on_delete = NULL;
-        tstate->on_delete_data = NULL;
+        tstate->trash_delete_nesting = 0;  // 垃圾删除嵌套计数，初始化为 0
+        tstate->trash_delete_later = NULL;  // 延迟删除对象指针，初始化为空
+        tstate->on_delete = NULL;  // 删除回调函数指针，初始化为空
+        tstate->on_delete_data = NULL;  // 删除回调函数数据指针，初始化为空
 
-        tstate->coroutine_origin_tracking_depth = 0;
+        tstate->coroutine_origin_tracking_depth = 0;  // 协程源跟踪深度，初始化为 0
 
-        tstate->coroutine_wrapper = NULL;
-        tstate->in_coroutine_wrapper = 0;
+        tstate->coroutine_wrapper = NULL;  // 协程包装函数指针，初始化为空
+        tstate->in_coroutine_wrapper = 0;  // 协程包装标志，初始化为 0
 
-        tstate->async_gen_firstiter = NULL;
-        tstate->async_gen_finalizer = NULL;
+        tstate->async_gen_firstiter = NULL;  // 异步生成器第一次迭代指针，初始化为空
+        tstate->async_gen_finalizer = NULL;  // 异步生成器终结器指针，初始化为空
 
-        tstate->context = NULL;
-        tstate->context_ver = 1;
+        tstate->context = NULL;  // 上下文管理器指针，初始化为空
+        tstate->context_ver = 1;  // 上下文版本，初始化为 1
 
-
+        // 如果需要初始化，则调用初始化函数
         if (init)
             _PyThreadState_Init(tstate);
 
+        // 加锁，保护解释器状态的线程状态链表操作
         HEAD_LOCK();
-        tstate->id = ++interp->tstate_next_unique_id;
-        tstate->prev = NULL;
-        tstate->next = interp->tstate_head;
+        tstate->id = ++interp->tstate_next_unique_id;  // 生成新的唯一 ID
+        tstate->prev = NULL;  // 当前线程状态的前一个状态指针，初始化为空
+        tstate->next = interp->tstate_head;  // 当前线程状态的下一个状态指针，指向链表头
         if (tstate->next)
-            tstate->next->prev = tstate;
-        interp->tstate_head = tstate;
-        HEAD_UNLOCK();
+            tstate->next->prev = tstate;  // 如果链表不为空，更新链表头的前指针
+        interp->tstate_head = tstate;  // 将当前线程状态设置为链表头
+        HEAD_UNLOCK();  // 解锁
     }
-
+    // 返回新创建的线程状态指针
     return tstate;
 }
 
 PyThreadState *
 PyThreadState_New(PyInterpreterState *interp)
 {
+    // 调用new_threadstate函数，传入解释器状态和初始化标志（1表示需要初始化）
     return new_threadstate(interp, 1);
 }
 
@@ -721,12 +730,15 @@ PyThreadState_Get(void)
     return tstate;
 }
 
+// 该函数用于交换当前线程的 PyThreadState（线程状态对象）。
+// PyThreadState 是 CPython 中用来表示线程在解释器中的状态的数据结构
 
 PyThreadState *
 PyThreadState_Swap(PyThreadState *newts)
 {
+    // 用于获取当前线程的线程状态。
     PyThreadState *oldts = GET_TSTATE();
-
+    //  将当前线程的线程状态设置为新的线程状态（newts）
     SET_TSTATE(newts);
     /* It should not be possible for more than one thread state
        to be used for a thread.  Check this the best we can in debug
@@ -744,6 +756,7 @@ PyThreadState_Swap(PyThreadState *newts)
         errno = err;
     }
 #endif
+    // 返回旧的 PyThreadState，这是调用者可能需要保存或进一步处理的信息
     return oldts;
 }
 
