@@ -2140,15 +2140,20 @@ PyLong_FromString(const char *str, char **pend, int base)
     PyLongObject *z = NULL;
     PyObject *strobj;
     Py_ssize_t slen;
-
+    // 检查传入的进制参数base是否合法，如果base不为0且小于2或者大于36，
+    // 则设置相应的ValueError错误并返回NULL，因为合法的进制范围是2到36之间。
     if ((base != 0 && base < 2) || base > 36) {
         PyErr_SetString(PyExc_ValueError,
                         "int() arg 2 must be >= 2 and <= 36");
         return NULL;
     }
+    // 通过循环跳过字符串开头的空白字符（利用Py_ISSPACE宏判断字符是否为空白字符），
+    // 直到遇到非空白字符或者字符串结束（\0）
     while (*str != '\0' && Py_ISSPACE(Py_CHARMASK(*str))) {
         str++;
     }
+    // 如果字符串开头是+号，直接跳过该字符；
+    // 如果是-号，则记录数字为负（sign设为-1），同时跳过该字符。
     if (*str == '+') {
         ++str;
     }
@@ -2156,6 +2161,12 @@ PyLong_FromString(const char *str, char **pend, int base)
         ++str;
         sign = -1;
     }
+    /*
+    当base为0时，根据字符串的前缀来自动确定进制：如果第一个字符不是0，则默认是十进制；
+    如果是以0x或0X开头，为十六进制；以0o或0O开头是八进制；以0b或0B开头是二进制。
+    若只是单个0开头（不符合新的进制表示规范的情况），则标记error_if_nonzero为1，
+    并将进制设为10，后续会根据这个标记做特殊处理。
+    */
     if (base == 0) {
         if (str[0] != '0') {
             base = 10;
@@ -2176,6 +2187,9 @@ PyLong_FromString(const char *str, char **pend, int base)
             base = 10;
         }
     }
+    // 对于符合特定进制前缀（如十六进制0x等）的情况，跳过前缀的两个字符，
+    // 并且允许紧跟一个下划线（如果有的话）也跳过。然后检查字符串是否以下划线开头，
+    // 如果是则直接跳转到错误处理部分（onError标签处），因为数字不能以下划线开头。
     if (str[0] == '0' &&
         ((base == 16 && (str[1] == 'x' || str[1] == 'X')) ||
          (base == 8  && (str[1] == 'o' || str[1] == 'O')) ||
@@ -2190,7 +2204,9 @@ PyLong_FromString(const char *str, char **pend, int base)
         /* May not start with underscores. */
         goto onError;
     }
-
+    // 如果base是二进制的幂次方（如2、4、8、16等，通过(base & (base - 1)) == 0判断），
+    // 则调用long_from_binary_base函数进行转换，若转换返回值小于0表示语法错误，
+    // 跳转到错误处理部分。如果base不是二进制的幂次方，则进入下面更复杂的通用转换逻辑来处理。
     start = str;
     if ((base & (base - 1)) == 0) {
         int res = long_from_binary_base(&str, base, &z);
@@ -2285,6 +2301,16 @@ that triggers it(!).  Instead the code was tested by artificially allocating
 just 1 digit at the start, so that the copying code was exercised for every
 digit beyond the first.
 ***/
+
+        /*
+        定义了一系列用于转换过程的变量，如c用于暂存当前处理的字符对应的数值，
+        size_z用于计算长整型对象内部数字数组的长度，digits统计数字字符串的有效数字位数等。
+        同时初始化了几个静态数组log_base_BASE、convwidth_base、convmultmax_base，
+        用于存储与进制相关的一些预计算信息（如log_base_BASE存储以PyLong_BASE为底的
+        对数相关值用于计算转换后数字的长度等），如果log_base_BASE中对应base的值还未初始化（为0），
+        则进行相应的初始化计算，确定convmultmax_base（用于后续转换计算中的一个乘法因子）
+        和convwidth_base（连续多少个输入数字作为一组进行处理）等。
+        */
         twodigits c;           /* current input character */
         Py_ssize_t size_z;
         Py_ssize_t digits = 0; // 大整数 字符串形式的长度 
@@ -2317,7 +2343,9 @@ digit beyond the first.
             assert(i > 0);
             convwidth_base[base] = i;
         }
-
+        // 通过循环扫描字符串，利用_PyLong_DigitValue宏判断字符对应的数值是否在指定进制范围内或者是下划线
+        // （允许出现单个下划线分隔数字），统计有效数字位数digits，同时检查是否有连续下划线等不符合规则的情况，
+        // 若有则跳转到错误处理部分。最后还要检查字符串末尾是否有下划线，若有同样跳转到错误处理。
         /* Find length of the string of numeric characters. */
         scan = str;
         lastdigit = str;
@@ -2349,6 +2377,12 @@ digit beyond the first.
          * need to initialize z->ob_digit -- no slot is read up before
          * being stored into.
          */
+        /*
+        根据之前统计的有效数字位数digits以及预计算的log_base_BASE数组信息，
+        计算长整型对象内部数字数组ob_digit大致需要的长度size_z（考虑到可能的进位等情况多加1），
+        检查是否超过最大允许长度（防止溢出），若溢出则设置OverflowError错误并返回NULL。
+        然后创建长整型对象z，并将其初始大小（ob_size）设置为0。
+        */
         double fsize_z = (double)digits * log_base_BASE[base] + 1.0;
         if (fsize_z > (double)MAX_LONG_DIGITS) {
             /* The same exception as in _PyLong_New(). */
@@ -2369,6 +2403,9 @@ digit beyond the first.
         /* `convwidth` consecutive input digits are treated as a single
          * digit in base `convmultmax`.
          */
+        /*
+        获取之前计算好的convwidth（每次处理的连续输入数字个数）和convmultmax（用于转换计算的乘法因子），
+        然后进入循环处理字符串中的每一组数字（跳过下划线），循环内会不断更新长整型对象z的值以完成整个字符串到长整型的转换。*/
         convwidth = convwidth_base[base];
         convmultmax = convmultmax_base[base];
 
@@ -2379,6 +2416,19 @@ digit beyond the first.
                 continue;
             }
             /* grab up to convwidth digits from the input string */
+            /*
+            首先获取当前要处理的第一个数字对应的数值（c），然后通过循环获取后续连续的数字
+            （最多convwidth个，跳过下划线），将它们组合成一个对应进制下的数值（通过不断乘以进制数并累加），
+            并保证这个数值在合法范围内（通过assert检查）。
+            根据实际获取到的数字个数确定convmult的值（如果获取到了convwidth个数字则用convmultmax，
+            否则根据实际个数计算合适的乘法因子）。
+            接着通过循环将长整型对象z的每一位数字乘以convmult并加上c，处理进位情况
+            （通过位运算确保每一位数字在合法范围PyLong_MASK内）。如果最后还有进位（c不为0），
+            则根据长整型对象z当前是否还有剩余空间来处理进位：如果有空间则直接将进位值存入下一位；
+            如果已满，则创建一个更大的长整型对象，复制原数据并将进位存入新对象的末尾，
+            同时更新相关指针和大小信息。
+            
+            */
             c = (digit)_PyLong_DigitValue[Py_CHARMASK(*str++)];
             for (i = 1; i < convwidth && str != scan; ++str) {
                 if (*str == '_') {
@@ -2437,6 +2487,17 @@ digit beyond the first.
             }
         }
     }
+    /*
+    如果长整型对象z为NULL（可能在转换过程中出现内存分配等问题导致创建失败），直接返回NULL。
+    对于error_if_nonzero为1的情况（之前提到的特殊进制判断场景），
+    如果转换后的长整型对象大小不为0，则跳转到错误处理部分，因为期望这种情况下应该是转换为0值。
+    如果处理完整个字符串后发现起始位置和当前位置一样（意味着没有真正处理到有效数字内容），也跳转到错误处理。
+    根据之前记录的正负号信息调整长整型对象z的大小（取负），然后跳过字符串末尾可能存在的空白字符，
+    若末尾还有其他非空白字符则跳转到错误处理。
+    接着调用long_normalize函数对长整型对象进行规范化处理（可能涉及到一些内部表示的优化等），
+    再调用maybe_small_long函数尝试将长整型对象转换为更紧凑的表示（如果满足一定条件），
+    最后如果pend不为NULL，则将处理结束后的字符串位置赋给*pend，并返回转换后的长整型对象（转换为PyObject *类型）。
+    */
     if (z == NULL) {
         return NULL;
     }
