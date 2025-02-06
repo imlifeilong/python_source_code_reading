@@ -258,6 +258,10 @@ PyAPI_FUNC(PyVarObject *) _PyObject_GC_Resize(PyVarObject *, Py_ssize_t);
 
 /* GC information is stored BEFORE the object structure. */
 #ifndef Py_LIMITED_API
+/*
+联合体（union）允许在同一块内存中存储不同的数据类型，但同一时间只能使用其中一个成员。
+在这里，联合体 _gc_head 可以存储 gc 结构体（用于垃圾回收的元数据）或者一个 long double 类型的数据（可能是为了内存对齐或填充）。
+*/
 typedef union _gc_head {
     struct {
         // 链表中的下一个垃圾回收对象的指针

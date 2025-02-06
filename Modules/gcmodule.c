@@ -37,9 +37,36 @@ module gc
 /*[clinic end generated code: output=da39a3ee5e6b4b0d input=b5c9690ecc842d79]*/
 
 /* Get an object's GC head */
+/*
+该宏的作用是从一个 Python 对象指针（PyObject *）获取其对应的垃圾回收头部指针（PyGC_Head *）。
+
+在 Python 的内存布局中，每个支持垃圾回收的对象在其实际数据存储区域之前会有一个 PyGC_Head 结构体，
+用于存储垃圾回收相关的信息，如引用计数、双向链表指针等。因此，要获取对象的垃圾回收头部，
+只需要将对象指针向前移动 PyGC_Head 结构体大小的距离。
+
+(PyGC_Head *)(o)：首先将对象指针 o 强制转换为 PyGC_Head * 类型，
+这样做是为了后续指针运算能够按照 PyGC_Head 结构体的大小进行。
+
+((PyGC_Head *)(o)-1)：将转换后的指针减去 1。在指针运算中，减去 1 
+意味着指针向前移动一个 PyGC_Head 结构体大小的距离，从而得到该对象的垃圾回收头部指针。
+*/
 #define AS_GC(o) ((PyGC_Head *)(o)-1)
 
 /* Get the object given the GC head */
+/*
+该宏的作用是从一个垃圾回收头部指针（PyGC_Head *）获取其对应的 Python 对象指针（PyObject *）。
+
+由于 PyGC_Head 结构体位于 Python 对象实际数据存储区域之前，所以要从垃圾回收头部指针获取对象指针，
+只需要将垃圾回收头部指针向后移动 PyGC_Head 结构体大小的距离。
+
+(PyGC_Head *)g：将传入的指针 g 强制转换为 PyGC_Head * 类型，
+确保后续指针运算按照 PyGC_Head 结构体的大小进行。
+
+((PyGC_Head *)g)+1：将转换后的指针加上 1。在指针运算中，加上 1 
+意味着指针向后移动一个 PyGC_Head 结构体大小的距离，从而得到该垃圾回收头部对应的 Python 对象指针。
+
+(PyObject *)(((PyGC_Head *)g)+1)：最后将得到的指针强制转换为 PyObject * 类型，以便返回一个 Python 对象指针。
+*/
 #define FROM_GC(g) ((PyObject *)(((PyGC_Head *)g)+1))
 
 /* Python string to use if unhandled exception occurs */
@@ -1678,34 +1705,70 @@ PyObject_GC_UnTrack(void *op)
         _PyObject_GC_UNTRACK(op);
 }
 
+/*
+_PyObject_GC_Alloc，用于分配带有垃圾回收头部的 Python 对象内存
+参数 use_calloc 是一个整数，用于指示是否使用 calloc 进行内存分配
+参数 basicsize 是一个 size_t 类型的值，表示要分配的对象的基本大小
+*/
 static PyObject *
 _PyObject_GC_Alloc(int use_calloc, size_t basicsize)
 {
+    // 定义一个指向 PyObject 类型的指针 op，用于存储最终分配的 Python 对象
     PyObject *op;
+    // 定义一个指向 PyGC_Head 类型的指针 g，用于管理垃圾回收头部信息
     PyGC_Head *g;
+    // 定义一个 size_t 类型的变量 size，用于存储要分配的总内存大小
     size_t size;
+    
+    // 检查 basicsize 是否过大，如果 basicsize 加上 PyGC_Head 的大小超过了 PY_SSIZE_T_MAX
+    // 说明可能会导致整数溢出，此时调用 PyErr_NoMemory 函数设置内存不足错误并返回 NULL
+
     if (basicsize > PY_SSIZE_T_MAX - sizeof(PyGC_Head))
         return PyErr_NoMemory();
+
+    // 计算要分配的总内存大小，即 PyGC_Head 的大小加上对象的基本大小
     size = sizeof(PyGC_Head) + basicsize;
+    // 根据 use_calloc 的值选择不同的内存分配方式
     if (use_calloc)
+        // 如果 use_calloc 为真，使用 PyObject_Calloc 函数分配内存
+        // 该函数会将分配的内存初始化为 0
         g = (PyGC_Head *)PyObject_Calloc(1, size);
     else
+        // 如果 use_calloc 为假，使用 PyObject_Malloc 函数分配内存
+        // 该函数分配的内存不会被初始化
         g = (PyGC_Head *)PyObject_Malloc(size);
+
+    // 检查内存分配是否成功，如果 g 为 NULL，说明内存分配失败
+    // 调用 PyErr_NoMemory 函数设置内存不足错误并返回 NULL
+    
     if (g == NULL)
         return PyErr_NoMemory();
+    // 将垃圾回收头部的引用计数初始化为 0
     g->gc.gc_refs = 0;
+    // 调用 _PyGCHead_SET_REFS 宏将垃圾回收头部的引用计数标记为 GC_UNTRACKED
+    // 表示该对象目前未被垃圾回收机制跟踪
+
     _PyGCHead_SET_REFS(g, GC_UNTRACKED);
+    // 增加第 0 代垃圾回收代的计数
+    // 表示新分配了一个带有垃圾回收头部的对象
+
     _PyRuntime.gc.generations[0].count++; /* number of allocated GC objects */
+    // 检查是否满足垃圾回收的条件
     if (_PyRuntime.gc.generations[0].count > _PyRuntime.gc.generations[0].threshold &&
         _PyRuntime.gc.enabled &&
         _PyRuntime.gc.generations[0].threshold &&
         !_PyRuntime.gc.collecting &&
         !PyErr_Occurred()) {
+        // 如果满足条件，将 collecting 标志设置为 1，表示正在进行垃圾回收
         _PyRuntime.gc.collecting = 1;
+        // 调用 collect_generations 函数进行垃圾回收操作
         collect_generations();
+        // 垃圾回收完成后，将 collecting 标志设置为 0，表示垃圾回收结束
         _PyRuntime.gc.collecting = 0;
     }
+    // 调用 FROM_GC 宏将 PyGC_Head 指针转换为 PyObject 指针
     op = FROM_GC(g);
+    // 返回分配的 Python 对象指针
     return op;
 }
 
