@@ -148,20 +148,26 @@ _PyList_DebugMallocStats(FILE *out)
                            numfree, sizeof(PyListObject));
 }
 
+// PyList_New 函数用于创建一个新的 Python 列表对象。
+// 参数 size 表示列表的初始大小，即列表中可容纳元素的数量。
 PyObject *
 PyList_New(Py_ssize_t size)
 {
+    // 定义一个指向 PyListObject 类型的指针 op，用于存储新创建的列表对象。
     PyListObject *op;
     // SHOW_ALLOC_COUNT 用于跟踪内存分配和重用的次数
     // initialized 变量确保 show_alloc 函数在程序退出时被调用一次
 #ifdef SHOW_ALLOC_COUNT
     static int initialized = 0;
     if (!initialized) {
+        // 注册 show_alloc 函数，使其在 Python 解释器退出时被调用，用于统计内存分配和重用信息。
         Py_AtExit(show_alloc);
         initialized = 1;
     }
 #endif
 
+    // 检查传入的 size 是否小于 0，如果小于 0，说明输入不合法。
+    // 调用 PyErr_BadInternalCall 函数设置内部调用错误，并返回 NULL。
     if (size < 0) {
         PyErr_BadInternalCall();
         return NULL;
@@ -171,19 +177,24 @@ PyList_New(Py_ssize_t size)
     // 减少 numfree 的数量，并将其引用计数重置为 1
     if (numfree) {
         numfree--;
+        // 从 free_list 数组中取出一个空闲的列表对象。
         op = free_list[numfree];
+        // 将取出的对象的引用计数重置为 1，表示该对象被重新使用。
         _Py_NewReference((PyObject *)op);
 #ifdef SHOW_ALLOC_COUNT
+        // 统计重用的次数。
         count_reuse++;
 #endif
     } else {
-        // 如果没有空闲对象，则分配一个新的 PyListObject，
-        // 使用 PyObject_GC_New 分配内存并初始化为垃圾回收对象。
+        // 如果没有空闲对象，则使用 PyObject_GC_New 函数分配一个新的 PyListObject 对象。
+        // 该函数会为对象分配内存，并将其初始化为可被垃圾回收的对象。
+        // 第二个参数 &PyList_Type 表示对象的类型为列表类型。
         // 如果分配失败，返回 NULL
         op = PyObject_GC_New(PyListObject, &PyList_Type);
         if (op == NULL)
             return NULL;
 #ifdef SHOW_ALLOC_COUNT
+        // 统计分配的次数。
         count_alloc++;
 #endif
     }
@@ -192,16 +203,20 @@ PyList_New(Py_ssize_t size)
         op->ob_item = NULL;
     else {
         // 如果 size 大于 0，则为 ob_item 分配空间，
-        // 大小为 size 个指向 PyObject 的指针。
-        // 如果分配失败，减少引用计数并返回内存不足错误。
+        // 使用 PyMem_Calloc 函数分配 size 个指向 PyObject 的指针的内存空间，并初始化为 0。
+
         op->ob_item = (PyObject **) PyMem_Calloc(size, sizeof(PyObject *));
+        // 检查内存分配是否成功，如果 op->ob_item 为 NULL，说明分配失败。
+        // 减少对象的引用计数，释放对象占用的内存。
+        // 调用 PyErr_NoMemory 函数设置内存不足错误，并返回 NULL。
         if (op->ob_item == NULL) {
             Py_DECREF(op);
             return PyErr_NoMemory();
         }
     }
-    // 设置列表对象的大小（ob_size）和分配的空间（allocated）为 size
+    // 设置列表对象的大小（即当前列表中元素的数量）为 size。
     Py_SIZE(op) = size;
+    // 设置列表对象已分配的空间大小为 size，即列表最多可容纳 size 个元素。
     op->allocated = size;
     // 将对象标记为垃圾回收对象，以便 Python 的垃圾回收器可以跟踪它
     _PyObject_GC_TRACK(op);

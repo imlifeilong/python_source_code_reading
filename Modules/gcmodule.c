@@ -83,25 +83,48 @@ static PyObject *gc_str = NULL;
 
 #define GEN_HEAD(n) (&_PyRuntime.gc.generations[n].head)
 
+/*
+作用：初始化垃圾回收器的运行时状态。
+参数：state 指向 GC 运行时状态的结构体，用于存储所有 GC 相关配置和数据。
+*/
 void
 _PyGC_Initialize(struct _gc_runtime_state *state)
 {
+    // 1 表示启用自动垃圾回收
     state->enabled = 1; /* automatic collection enabled? */
 
+    // 定义一个宏 _GEN_HEAD(n)，用于获取指定代数（n）的垃圾回收链表头指针
+    // 该宏通过访问 state 结构体中 generations 数组的第 n 个元素的 head 成员来实现
 #define _GEN_HEAD(n) (&state->generations[n].head)
+    // 定义一个局部数组 generations，用于初始化不同代数的垃圾回收信息
+    // 数组的大小由 NUM_GENERATIONS 宏定义，代表垃圾回收的代数数量
     struct gc_generation generations[NUM_GENERATIONS] = {
+        // 每一代垃圾回收信息包含一个 PyGC_Head 结构体、一个阈值和一个计数
+        // PyGC_Head 结构体用于构建双向链表，阈值用于决定何时触发垃圾回收，计数用于记录当前代数中对象的数量
         /* PyGC_Head,                                 threshold,      count */
+        // 第 0 代垃圾回收信息初始化
+        // 双向链表的头指针和尾指针都指向自身，阈值为 700，初始计数为 0
         {{{_GEN_HEAD(0), _GEN_HEAD(0), 0}},           700,            0},
+        // 第 1 代垃圾回收信息初始化
+        // 双向链表的头指针和尾指针都指向自身，阈值为 10，初始计数为 0
         {{{_GEN_HEAD(1), _GEN_HEAD(1), 0}},           10,             0},
+        // 第 2 代垃圾回收信息初始化
+        // 双向链表的头指针和尾指针都指向自身，阈值为 10，初始计数为 0
         {{{_GEN_HEAD(2), _GEN_HEAD(2), 0}},           10,             0},
     };
+    // 遍历 generations 数组，将局部数组中的信息复制到 state 结构体的 generations 数组中
     for (int i = 0; i < NUM_GENERATIONS; i++) {
         state->generations[i] = generations[i];
     };
+    // 将第 0 代垃圾回收链表的头指针赋值给 state 结构体的 generation0 成员
+    // 方便后续快速访问第 0 代垃圾回收链表
     state->generation0 = GEN_HEAD(0);
+    // 定义一个永久代的垃圾回收信息结构体 permanent_generation
+    // 永久代的双向链表的头指针和尾指针都指向自身，阈值为 0，初始计数为 0
     struct gc_generation permanent_generation = {
           {{&state->permanent_generation.head, &state->permanent_generation.head, 0}}, 0, 0
     };
+    // 将永久代的垃圾回收信息赋值给 state 结构体的 permanent_generation 成员
     state->permanent_generation = permanent_generation;
 }
 
@@ -155,16 +178,41 @@ GC_TENTATIVELY_UNREACHABLE
 
 /*** list functions ***/
 
+/**
+ * gc_list_init 函数用于初始化一个基于 PyGC_Head 结构体的双向链表。
+ * 在 Python 的垃圾回收机制中，会使用双向链表来管理可被垃圾回收的对象，
+ * 该函数的作用是将给定的链表初始化为空链表状态。
+ *
+ * @param list 指向 PyGC_Head 结构体的指针，代表要初始化的链表头节点。
+ */
 static void
-gc_list_init(PyGC_Head *list)
+gc_list_init(PyGC_Head* list)
 {
+    // 将链表头节点的 gc_prev 指针指向自身。
+    // 在双向链表中，gc_prev 指针通常用于指向前一个节点，
+    // 当链表为空时，头节点的前一个节点就是它自己。
     list->gc.gc_prev = list;
+
+    // 将链表头节点的 gc_next 指针指向自身。
+    // 同理，gc_next 指针用于指向后一个节点，
+    // 空链表的头节点的后一个节点也是它自己。
     list->gc.gc_next = list;
 }
-
+/**
+ * gc_list_is_empty 函数用于判断一个基于 PyGC_Head 结构体构建的双向链表是否为空。
+ * 在 Python 的垃圾回收机制中，会使用双向链表来管理可被垃圾回收的对象，
+ * 该函数为判断链表是否为空提供了一种简单的方式。
+ *
+ * @param list 指向 PyGC_Head 结构体的指针，代表要检查的链表的头节点。
+ * @return 如果链表为空，返回非零值（通常为 1）；如果链表不为空，返回 0。
+ */
 static int
-gc_list_is_empty(PyGC_Head *list)
+gc_list_is_empty(PyGC_Head* list)
 {
+    // 在双向链表中，如果链表为空，头节点的 gc_next 指针会指向自身。
+    // 因为在空链表中，没有其他节点，所以头节点的下一个节点就是它自己。
+    // 这里通过比较头节点的 gc_next 指针和头节点本身是否相等来判断链表是否为空。
+    // 如果相等，说明链表为空，返回非零值；否则，说明链表不为空，返回 0。
     return (list->gc.gc_next == list);
 }
 
@@ -210,18 +258,43 @@ gc_list_move(PyGC_Head *node, PyGC_Head *list)
 }
 
 /* append list `from` onto list `to`; `from` becomes an empty list */
+/**
+ * gc_list_merge 函数用于将一个垃圾回收对象链表（`from`）合并到另一个链表（`to`）中。
+ * 这两个链表都是基于 `PyGC_Head` 结构体构建的双向链表，常用于 Python 的垃圾回收机制。
+ *
+ * @param from 指向要合并的源链表的 `PyGC_Head` 结构体指针。合并完成后，该链表会被清空。
+ * @param to 指向目标链表的 `PyGC_Head` 结构体指针，源链表的元素将被添加到这个链表中。
+ */
 static void
-gc_list_merge(PyGC_Head *from, PyGC_Head *to)
+gc_list_merge(PyGC_Head* from, PyGC_Head* to)
 {
-    PyGC_Head *tail;
+    // 定义一个指向 `PyGC_Head` 结构体的指针 `tail`，用于临时存储目标链表的尾部节点。
+    PyGC_Head* tail;
+
+    // 使用 `assert` 宏确保 `from` 和 `to` 不是同一个链表。
+    // 如果 `from` 和 `to` 相同，合并操作没有意义，并且可能导致链表结构损坏，因此这里进行断言检查。
     assert(from != to);
+
+    // 检查源链表 `from` 是否为空。
+    // `gc_list_is_empty` 函数用于判断链表是否为空，如果链表不为空，则执行合并操作。
     if (!gc_list_is_empty(from)) {
+        // 获取目标链表 `to` 的尾部节点，将其赋值给 `tail` 指针。
         tail = to->gc.gc_prev;
+
+        // 以下四行代码完成链表节点的连接操作，将源链表 `from` 插入到目标链表 `to` 的尾部。
+
+        // 将目标链表尾部节点 `tail` 的 `gc_next` 指针指向源链表的第一个有效节点（`from->gc.gc_next`）。
         tail->gc.gc_next = from->gc.gc_next;
+        // 将源链表第一个有效节点的 `gc_prev` 指针指向目标链表的尾部节点 `tail`。
         tail->gc.gc_next->gc.gc_prev = tail;
+        // 将目标链表 `to` 的 `gc_prev` 指针指向源链表的最后一个有效节点（`from->gc.gc_prev`）。
         to->gc.gc_prev = from->gc.gc_prev;
+        // 将源链表最后一个有效节点的 `gc_next` 指针指向目标链表 `to`。
         to->gc.gc_prev->gc.gc_next = to;
     }
+
+    // 合并完成后，将源链表 `from` 初始化为空链表。
+    // `gc_list_init` 函数用于将链表初始化为空状态，通常会将链表的头节点和尾节点指向自身。
     gc_list_init(from);
 }
 
@@ -820,136 +893,184 @@ clear_freelists(void)
 
 /* This is the main function.  Read this to understand how the
  * collection process works. */
+
+ /**
+  * collect 函数是 Python 垃圾回收机制的核心函数，用于执行指定代数的垃圾回收操作。
+  * 它会标记并回收那些不可达的对象，同时处理包含终结器的对象，避免内存泄漏。
+  *
+  * @param generation 要进行垃圾回收的代数。代数越高，对象存活时间越长，回收频率越低。
+  * @param n_collected 指向 Py_ssize_t 类型的指针，用于存储成功回收的对象数量。
+  * @param n_uncollectable 指向 Py_ssize_t 类型的指针，用于存储无法回收的对象数量。
+  * @param nofail 一个标志，指示在垃圾回收过程中发生错误时是否忽略错误。
+  * @return 返回成功回收和无法回收的对象总数。
+    准备工作：记录调试信息、更新计数器、合并更年轻代数的对象链表。
+    标记可达对象：通过更新和减去引用计数，标记出从外部可达的对象。
+    分离不可达对象：将不可达对象移动到 unreachable 链表。
+    处理可达对象：将可达对象移动到下一代或进行特殊处理。
+    处理终结器：分离出带有旧版终结器的不可达对象。
+    清理垃圾：处理弱引用、调用终结器、打破引用循环并删除垃圾对象。
+    统计和调试：统计不可收集对象数量，输出调试信息。
+    异常处理：处理垃圾回收过程中发生的异常。
+    更新统计信息：更新当前代数的收集统计信息。
+    结束操作：触发 DTrace 探针，返回回收和不可收集对象总数。
+  */
 static Py_ssize_t
-collect(int generation, Py_ssize_t *n_collected, Py_ssize_t *n_uncollectable,
-        int nofail)
+collect(int generation, Py_ssize_t* n_collected, Py_ssize_t* n_uncollectable,
+    int nofail)
 {
     int i;
-    Py_ssize_t m = 0; /* # objects collected */
-    Py_ssize_t n = 0; /* # unreachable objects that couldn't be collected */
-    PyGC_Head *young; /* the generation we are examining */
-    PyGC_Head *old; /* next older generation */
-    PyGC_Head unreachable; /* non-problematic unreachable trash */
-    PyGC_Head finalizers;  /* objects with, & reachable from, __del__ */
-    PyGC_Head *gc;
-    _PyTime_t t1 = 0;   /* initialize to prevent a compiler warning */
+    // m 用于记录成功回收的对象数量
+    Py_ssize_t m = 0;
+    // n 用于记录无法回收的对象数量
+    Py_ssize_t n = 0;
+    // young 指向当前要检查的代数的对象链表头
+    PyGC_Head* young;
+    // old 指向下一个更老代数的对象链表头
+    PyGC_Head* old;
+    // unreachable 用于存储不可达且无问题的垃圾对象
+    PyGC_Head unreachable;
+    // finalizers 用于存储带有 __del__ 方法以及从这些对象可达的对象
+    PyGC_Head finalizers;
+    PyGC_Head* gc;
+    // t1 用于记录垃圾回收开始时间，避免编译器警告先初始化为 0
+    _PyTime_t t1 = 0;
 
-    struct gc_generation_stats *stats = &_PyRuntime.gc.generation_stats[generation];
+    // 获取当前代数的统计信息结构体指针
+    struct gc_generation_stats* stats = &_PyRuntime.gc.generation_stats[generation];
 
+    // 如果开启了 DEBUG_STATS 调试模式，输出垃圾回收开始信息和各代对象数量
     if (_PyRuntime.gc.debug & DEBUG_STATS) {
         PySys_WriteStderr("gc: collecting generation %d...\n",
-                          generation);
+            generation);
         PySys_WriteStderr("gc: objects in each generation:");
         for (i = 0; i < NUM_GENERATIONS; i++)
             PySys_FormatStderr(" %zd",
-                              gc_list_size(GEN_HEAD(i)));
+                gc_list_size(GEN_HEAD(i)));
         PySys_WriteStderr("\ngc: objects in permanent generation: %zd",
-                         gc_list_size(&_PyRuntime.gc.permanent_generation.head));
+            gc_list_size(&_PyRuntime.gc.permanent_generation.head));
+        // 记录垃圾回收开始时间
         t1 = _PyTime_GetMonotonicClock();
 
         PySys_WriteStderr("\n");
     }
 
+    // 如果 DTrace 启用了 GC_START 探针，触发该探针
     if (PyDTrace_GC_START_ENABLED())
         PyDTrace_GC_START(generation);
 
-    /* update collection and allocation counters */
-    if (generation+1 < NUM_GENERATIONS)
-        _PyRuntime.gc.generations[generation+1].count += 1;
+    /* 更新收集和分配计数器 */
+    // 如果当前代数不是最高代数，将下一个更老代数的计数加 1
+    if (generation + 1 < NUM_GENERATIONS)
+        _PyRuntime.gc.generations[generation + 1].count += 1;
+    // 将当前代数及更年轻代数的计数清零
     for (i = 0; i <= generation; i++)
         _PyRuntime.gc.generations[i].count = 0;
 
-    /* merge younger generations with one we are currently collecting */
+    /* 将更年轻的代数合并到当前要收集的代数中 */
     for (i = 0; i < generation; i++) {
+        // 调用 gc_list_merge 函数将更年轻代数的对象链表合并到当前代数
         gc_list_merge(GEN_HEAD(i), GEN_HEAD(generation));
     }
 
-    /* handy references */
+    // 获取当前要检查的代数的对象链表头
     young = GEN_HEAD(generation);
-    if (generation < NUM_GENERATIONS-1)
-        old = GEN_HEAD(generation+1);
+    // 如果当前代数不是最高代数，获取下一个更老代数的对象链表头
+    if (generation < NUM_GENERATIONS - 1)
+        old = GEN_HEAD(generation + 1);
     else
+        // 如果是最高代数，old 指向 young
         old = young;
 
-    /* Using ob_refcnt and gc_refs, calculate which objects in the
-     * container set are reachable from outside the set (i.e., have a
-     * refcount greater than 0 when all the references within the
-     * set are taken into account).
+    /* 使用 ob_refcnt 和 gc_refs，计算容器集合中哪些对象可以从集合外部访问
+     * （即当考虑集合内的所有引用时，引用计数大于 0）。
      */
+     // 更新引用计数
     update_refs(young);
+    // 减去集合内的引用计数
     subtract_refs(young);
 
-    /* Leave everything reachable from outside young in young, and move
-     * everything else (in young) to unreachable.
-     * NOTE:  This used to move the reachable objects into a reachable
-     * set instead.  But most things usually turn out to be reachable,
-     * so it's more efficient to move the unreachable things.
+    /* 将从 young 外部可达的所有对象留在 young 中，并将其他所有对象（在 young 中）移动到 unreachable 中。
+     * 注意：以前是将可达对象移动到可达集合中。但通常大多数对象都是可达的，
+     * 所以移动不可达对象更高效。
      */
+     // 初始化 unreachable 链表
     gc_list_init(&unreachable);
+    // 将不可达对象从 young 移动到 unreachable
     move_unreachable(young, &unreachable);
 
-    /* Move reachable objects to next generation. */
+    /* 将可达对象移动到下一代 */
     if (young != old) {
         if (generation == NUM_GENERATIONS - 2) {
+            // 如果是倒数第二代，增加长生命周期待处理对象的计数
             _PyRuntime.gc.long_lived_pending += gc_list_size(young);
         }
+        // 将 young 中的可达对象合并到 old 中
         gc_list_merge(young, old);
     }
     else {
-        /* We only untrack dicts in full collections, to avoid quadratic
-           dict build-up. See issue #14775. */
+        /* 我们只在完整收集时取消跟踪字典，以避免二次字典堆积。参见问题 #14775。 */
+        // 取消跟踪字典
         untrack_dicts(young);
+        // 重置长生命周期待处理对象计数
         _PyRuntime.gc.long_lived_pending = 0;
+        // 更新长生命周期对象总数
         _PyRuntime.gc.long_lived_total = gc_list_size(young);
     }
 
-    /* All objects in unreachable are trash, but objects reachable from
-     * legacy finalizers (e.g. tp_del) can't safely be deleted.
-     */
+    /* unreachable 中的所有对象都是垃圾，但从旧版终结器（例如 tp_del）可达的对象不能安全删除。 */
+    // 初始化 finalizers 链表
     gc_list_init(&finalizers);
+    // 将带有旧版终结器的不可达对象从 unreachable 移动到 finalizers
     move_legacy_finalizers(&unreachable, &finalizers);
-    /* finalizers contains the unreachable objects with a legacy finalizer;
-     * unreachable objects reachable *from* those are also uncollectable,
-     * and we move those into the finalizers list too.
+    /* finalizers 包含带有旧版终结器的不可达对象；
+     * 从这些对象可达的不可达对象也是不可收集的，我们也将它们移动到 finalizers 列表中。
      */
+     // 移动从 finalizers 可达的不可收集对象到 finalizers
     move_legacy_finalizer_reachable(&finalizers);
 
-    /* Print debugging information. */
+    // 如果开启了 DEBUG_COLLECTABLE 调试模式，输出可收集对象信息
     if (_PyRuntime.gc.debug & DEBUG_COLLECTABLE) {
         for (gc = unreachable.gc.gc_next; gc != &unreachable; gc = gc->gc.gc_next) {
             debug_cycle("collectable", FROM_GC(gc));
         }
     }
 
-    /* Clear weakrefs and invoke callbacks as necessary. */
+    /* 必要时清除弱引用并调用回调函数 */
+    // 处理弱引用，返回成功处理的对象数量并累加到 m
     m += handle_weakrefs(&unreachable, old);
 
-    /* Call tp_finalize on objects which have one. */
+    /* 对有 tp_finalize 的对象调用 tp_finalize */
+    // 对 unreachable 中的对象调用终结器
     finalize_garbage(&unreachable);
 
+    // 检查垃圾对象是否可以被回收
     if (check_garbage(&unreachable)) {
+        // 如果不能回收，将其复活并合并到 old 中
         revive_garbage(&unreachable);
         gc_list_merge(&unreachable, old);
     }
     else {
-        /* Call tp_clear on objects in the unreachable set.  This will cause
-         * the reference cycles to be broken.  It may also cause some objects
-         * in finalizers to be freed.
+        /* 对 unreachable 集合中的对象调用 tp_clear。这将导致引用循环被打破。
+         * 这也可能导致 finalizers 中的一些对象被释放。
          */
+         // 增加 unreachable 中对象数量到 m
         m += gc_list_size(&unreachable);
+        // 删除 unreachable 中的垃圾对象
         delete_garbage(&unreachable, old);
     }
 
-    /* Collect statistics on uncollectable objects found and print
-     * debugging information. */
+    /* 收集找到的不可收集对象的统计信息并输出调试信息 */
     for (gc = finalizers.gc.gc_next;
-         gc != &finalizers;
-         gc = gc->gc.gc_next) {
+        gc != &finalizers;
+        gc = gc->gc.gc_next) {
+        // 统计不可收集对象数量
         n++;
         if (_PyRuntime.gc.debug & DEBUG_UNCOLLECTABLE)
+            // 如果开启 DEBUG_UNCOLLECTABLE 调试模式，输出不可收集对象信息
             debug_cycle("uncollectable", FROM_GC(gc));
     }
     if (_PyRuntime.gc.debug & DEBUG_STATS) {
+        // 记录垃圾回收结束时间
         _PyTime_t t2 = _PyTime_GetMonotonicClock();
 
         if (m == 0 && n == 0)
@@ -957,48 +1078,61 @@ collect(int generation, Py_ssize_t *n_collected, Py_ssize_t *n_uncollectable,
         else
             PySys_FormatStderr(
                 "gc: done, %zd unreachable, %zd uncollectable",
-                n+m, n);
+                n + m, n);
+        // 输出垃圾回收耗时
         PySys_WriteStderr(", %.4fs elapsed\n",
-                          _PyTime_AsSecondsDouble(t2 - t1));
+            _PyTime_AsSecondsDouble(t2 - t1));
     }
 
-    /* Append instances in the uncollectable set to a Python
-     * reachable list of garbage.  The programmer has to deal with
-     * this if they insist on creating this type of structure.
+    /* 将不可收集集合中的实例附加到 Python 可达的垃圾列表中。
+     * 如果程序员坚持创建这种类型的结构，他们必须处理这个问题。
      */
+     // 处理旧版终结器
     handle_legacy_finalizers(&finalizers, old);
 
-    /* Clear free list only during the collection of the highest
-     * generation */
-    if (generation == NUM_GENERATIONS-1) {
+    /* 仅在收集最高代数时清除空闲列表 */
+    if (generation == NUM_GENERATIONS - 1) {
+        // 清除空闲列表
         clear_freelists();
     }
 
+    // 检查垃圾回收过程中是否发生异常
     if (PyErr_Occurred()) {
         if (nofail) {
+            // 如果 nofail 为真，清除异常信息
             PyErr_Clear();
         }
         else {
             if (gc_str == NULL)
+                // 创建一个 Unicode 对象表示 "garbage collection"
                 gc_str = PyUnicode_FromString("garbage collection");
+            // 输出未捕获异常信息
             PyErr_WriteUnraisable(gc_str);
+            // 抛出致命错误
             Py_FatalError("unexpected exception during garbage collection");
         }
     }
 
-    /* Update stats */
+    /* 更新统计信息 */
     if (n_collected)
+        // 如果 n_collected 不为空，将成功回收的对象数量赋值给它
         *n_collected = m;
     if (n_uncollectable)
+        // 如果 n_uncollectable 不为空，将无法回收的对象数量赋值给它
         *n_uncollectable = n;
+    // 增加当前代数的收集次数
     stats->collections++;
+    // 累加成功回收的对象数量
     stats->collected += m;
+    // 累加无法回收的对象数量
     stats->uncollectable += n;
 
+    // 如果 DTrace 启用了 GC_DONE 探针，触发该探针
     if (PyDTrace_GC_DONE_ENABLED())
-        PyDTrace_GC_DONE(n+m);
+        PyDTrace_GC_DONE(n + m);
 
-    return n+m;
+    // 返回成功回收和无法回收的对象总数
+    return n + m;
 }
 
 /* Invoke progress callbacks to notify clients that garbage collection
@@ -1044,38 +1178,88 @@ invoke_gc_callback(const char *phase, int generation,
 /* Perform garbage collection of a generation and invoke
  * progress callbacks.
  */
+ /**
+  * collect_with_callback 函数用于执行垃圾回收操作，并在操作前后调用回调函数，以记录或处理垃圾回收的相关信息。
+  *
+  * @param generation 一个整数，表示要进行垃圾回收的起始代数。垃圾回收通常会从指定代数开始，并可能涉及更年轻的代数。
+  * @return 返回一个 Py_ssize_t 类型的值，表示垃圾回收操作的结果，通常是回收的对象数量。
+  */
 static Py_ssize_t
 collect_with_callback(int generation)
 {
-    Py_ssize_t result, collected, uncollectable;
+    // 定义 Py_ssize_t 类型的变量，用于存储不同的垃圾回收结果信息
+    // result 用于存储垃圾回收操作的最终结果，通常是回收的对象数量
+    Py_ssize_t result;
+    // collected 用于存储本次垃圾回收中成功回收的对象数量
+    Py_ssize_t collected;
+    // uncollectable 用于存储本次垃圾回收中无法回收的对象数量，这些对象可能由于存在循环引用等原因无法被正常回收
+    Py_ssize_t uncollectable;
+
+    // 调用 invoke_gc_callback 函数，在垃圾回收开始前触发回调。
+    // 第一个参数 "start" 是回调的标识符，表示垃圾回收操作开始
+    // 第二个参数 generation 传递要进行垃圾回收的起始代数
+    // 第三个和第四个参数都为 0，因为在开始阶段还没有实际的回收数量信息
     invoke_gc_callback("start", generation, 0, 0);
+
+    // 调用 collect 函数执行实际的垃圾回收操作。
+    // 第一个参数 generation 表示从哪个代数开始进行垃圾回收
+    // 第二个参数 &collected 是一个指向 collected 变量的指针，用于让 collect 函数将成功回收的对象数量存储到该变量中
+    // 第三个参数 &uncollectable 是一个指向 uncollectable 变量的指针，用于让 collect 函数将无法回收的对象数量存储到该变量中
+    // 第四个参数 0 可能是一个标志位，用于传递额外的回收选项，但这里传递 0 表示使用默认选项
     result = collect(generation, &collected, &uncollectable, 0);
+
+    // 调用 invoke_gc_callback 函数，在垃圾回收结束后触发回调。
+    // 第一个参数 "stop" 是回调的标识符，表示垃圾回收操作结束
+    // 第二个参数 generation 传递本次进行垃圾回收的起始代数
+    // 第三个参数 collected 传递本次垃圾回收中成功回收的对象数量
+    // 第四个参数 uncollectable 传递本次垃圾回收中无法回收的对象数量
     invoke_gc_callback("stop", generation, collected, uncollectable);
+
+    // 返回垃圾回收操作的最终结果，即回收的对象数量
     return result;
 }
 
+// 该函数用于触发 Python 垃圾回收机制中的分代回收操作，
+// 会根据各代的对象计数和阈值情况，决定对哪些代的对象进行垃圾回收。
+// 返回值是本次垃圾回收过程中回收的对象数量。
 static Py_ssize_t
 collect_generations(void)
 {
+    // 定义一个整数变量 i，用于遍历不同的垃圾回收代。
     int i;
+    // 定义一个 Py_ssize_t 类型的变量 n，用于记录本次垃圾回收过程中回收的对象数量，初始化为 0。
     Py_ssize_t n = 0;
-
-    /* Find the oldest generation (highest numbered) where the count
-     * exceeds the threshold.  Objects in the that generation and
-     * generations younger than it will be collected. */
-    for (i = NUM_GENERATIONS-1; i >= 0; i--) {
+    /*
+     * 查找对象计数超过阈值的最老的代（编号最大的代）。
+     * 该代以及比它年轻的代中的对象都将被回收。
+     * 从最老的代开始向前遍历，因为分代回收机制中，
+     * 当较老的代需要回收时，通常也会连带回收较年轻代的对象。
+     */
+    for (i = NUM_GENERATIONS - 1; i >= 0; i--) {
+        // 检查当前代的对象计数是否超过了该代的阈值。
         if (_PyRuntime.gc.generations[i].count > _PyRuntime.gc.generations[i].threshold) {
-            /* Avoid quadratic performance degradation in number
-               of tracked objects. See comments at the beginning
-               of this file, and issue #4074.
-            */
+            /*
+             * 避免在跟踪对象数量较多时出现二次性能退化问题。
+             * 参考文件开头的注释和问题 #4074 了解更多信息。
+             * 如果当前是最老的代（i 等于 NUM_GENERATIONS - 1），
+             * 并且长生命周期待处理对象的数量小于长生命周期对象总数的四分之一，
+             * 则跳过本次回收，继续检查下一个较年轻的代。
+             * 这是一种性能优化策略，防止不必要的垃圾回收操作。
+             */
             if (i == NUM_GENERATIONS - 1
                 && _PyRuntime.gc.long_lived_pending < _PyRuntime.gc.long_lived_total / 4)
                 continue;
+            // 调用 collect_with_callback 函数对从第 i 代及更年轻的代进行垃圾回收操作，
+            // 并将回收的对象数量赋值给变量 n。
+            // collect_with_callback 函数可能会执行一些回调操作，
+            // 例如在回收前后执行特定的函数。
             n = collect_with_callback(i);
+            // 一旦找到需要回收的代并执行了回收操作，就跳出循环，
+            // 因为已经对相关代的对象进行了回收。
             break;
         }
     }
+    // 返回本次垃圾回收过程中回收的对象数量。
     return n;
 }
 
@@ -1784,12 +1968,22 @@ _PyObject_GC_Calloc(size_t basicsize)
     return _PyObject_GC_Alloc(1, basicsize);
 }
 
+// _PyObject_GC_New 函数用于创建一个支持垃圾回收的 Python 对象。
+// 参数 tp 是一个指向 PyTypeObject 类型的指针，代表要创建对象的类型。
 PyObject *
 _PyObject_GC_New(PyTypeObject *tp)
 {
+    // 调用 _PyObject_GC_Malloc 函数为对象分配内存。
+    // _PyObject_SIZE(tp) 用于计算该类型对象所需的内存大小，它会考虑对象的类型和可能的额外开销。
+    // 函数返回一个指向新分配内存的 PyObject 指针。
     PyObject *op = _PyObject_GC_Malloc(_PyObject_SIZE(tp));
+    // 检查内存分配是否成功，如果 op 不为 NULL，说明内存分配成功。
     if (op != NULL)
+        // 调用 PyObject_INIT 函数对新分配的对象进行初始化。
+        // 该函数会将对象的类型设置为 tp 所指向的类型，并进行一些必要的初始化操作。
+        // 初始化完成后，返回初始化后的对象指针。
         op = PyObject_INIT(op, tp);
+    // 返回创建并初始化好的对象指针，如果内存分配失败则返回 NULL。
     return op;
 }
 

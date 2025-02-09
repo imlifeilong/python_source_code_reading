@@ -90,11 +90,26 @@ extern "C" {
    the algorithm was refined in response to issue #14775.
 */
 
+// 定义一个名为 gc_generation 的结构体，该结构体用于表示 Python 垃圾回收机制中的一代。
+// Python 的垃圾回收采用分代回收策略，将对象分为不同的代，每一代有不同的回收频率，
+// 通常新创建的对象属于较年轻的代，随着对象存活时间增长，会逐渐晋升到较老的代。
 struct gc_generation {
+    // 每个代都有一个 PyGC_Head 类型的成员 head，它作为该代中所有可被垃圾回收对象的链表头。
+    // PyGC_Head 结构体包含了用于构建双向链表的指针（gc_next 和 gc_prev）以及引用计数（gc_refs），
+    // 通过这个链表，垃圾回收器可以遍历该代中的所有对象，以便进行引用计数检查和垃圾回收操作。
     PyGC_Head head;
+    // threshold 是一个整数，代表该代的垃圾回收阈值。
+    // 当该代中对象的数量（由 count 成员记录）超过这个阈值时，
+    // 垃圾回收机制会触发对该代及更老代的对象进行垃圾回收操作。
+    // 不同代的阈值通常不同，年轻代的阈值相对较低，意味着更频繁地进行回收，
+    // 而老年代的阈值相对较高，回收频率较低。
     int threshold; /* collection threshold */
+    // count 也是一个整数，用于记录该代中对象的分配数量或者更年轻代的垃圾回收次数。
+    // 对于较年轻的代，它主要记录新分配的可被垃圾回收对象的数量；
+    // 对于较老的代，当较年轻的代触发垃圾回收时，该代的 count 值也会相应增加。
+    // 当 count 值超过 threshold 时，就会触发该代及更老代的垃圾回收。
     int count; /* count of allocations or collections of younger
-                  generations */
+                    generations */
 };
 
 /* Running stats per generation */

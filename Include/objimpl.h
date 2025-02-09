@@ -317,6 +317,39 @@ extern PyGC_Head *_PyGC_generation0;
 
 /* Tell the GC to track this object.  NB: While the object is tracked the
  * collector it must be safe to call the ob_traverse method. */
+/*
+// 该宏用于将一个支持垃圾回收的 Python 对象添加到垃圾回收机制的跟踪列表中。
+// 参数 o 是一个指向 PyObject 类型的指针，表示要进行跟踪的对象。
+#define _PyObject_GC_TRACK(o) do { \
+    // 调用 _Py_AS_GC 宏将 PyObject 指针 o 转换为 PyGC_Head 指针 g。
+    // 因为每个支持垃圾回收的对象前面都有一个 PyGC_Head 结构体，
+    // 通过这个转换可以获取该对象的垃圾回收头部信息。
+    PyGC_Head *g = _Py_AS_GC(o); \
+    // 检查该对象是否已经被跟踪。
+    // _PyGCHead_REFS(g) 用于获取垃圾回收头部的引用计数标记，
+    // _PyGC_REFS_UNTRACKED 表示对象未被跟踪。
+    // 如果引用计数标记不等于 _PyGC_REFS_UNTRACKED，说明对象已经被跟踪，
+    // 此时调用 Py_FatalError 函数输出致命错误信息并终止程序。
+    if (_PyGCHead_REFS(g) != _PyGC_REFS_UNTRACKED) \
+        Py_FatalError("GC object already tracked"); \
+    // 将对象的引用计数标记设置为 _PyGC_REFS_REACHABLE。
+    // 这表示该对象是可达的，即可以通过其他对象访问到。
+    // 垃圾回收机制会根据这个标记来判断对象的可达性。
+    _PyGCHead_SET_REFS(g, _PyGC_REFS_REACHABLE); \
+    // 将对象插入到第 0 代垃圾回收链表中。
+    // 这里采用的是双向链表的插入操作。
+    // 首先将对象的 gc_next 指针指向第 0 代链表的头节点 _PyGC_generation0。
+    g->gc.gc_next = _PyGC_generation0; \
+    // 将对象的 gc_prev 指针指向第 0 代链表头节点的前一个节点。
+    g->gc.gc_prev = _PyGC_generation0->gc.gc_prev; \
+    // 更新第 0 代链表头节点前一个节点的 gc_next 指针，使其指向当前对象。
+    g->gc.gc_prev->gc.gc_next = g; \
+    // 更新第 0 代链表头节点的 gc_prev 指针，使其指向当前对象。
+    _PyGC_generation0->gc.gc_prev = g; \
+    // 使用 do...while(0) 结构是为了确保宏在任何使用场景下都能正确工作，
+    // 例如在 if 语句中使用宏时，避免出现语法错误。
+    } while (0);
+*/
 #define _PyObject_GC_TRACK(o) do { \
     PyGC_Head *g = _Py_AS_GC(o); \
     if (_PyGCHead_REFS(g) != _PyGC_REFS_UNTRACKED) \
@@ -332,6 +365,48 @@ extern PyGC_Head *_PyGC_generation0;
  * gc_next doesn't need to be set to NULL, but doing so is a good
  * way to provoke memory errors if calling code is confused.
  */
+/*
+// 此宏用于将一个原本被垃圾回收机制跟踪的 Python 对象从跟踪列表中移除，
+// 即停止对该对象的垃圾回收跟踪。参数 o 是一个指向 PyObject 类型的指针，
+// 代表要取消跟踪的对象。
+#define _PyObject_GC_UNTRACK(o) do {
+    // 调用 _Py_AS_GC 宏将传入的 PyObject 指针 o 转换为 PyGC_Head 指针 g。
+    // 因为在内存布局上，每个支持垃圾回收的 Python 对象前面都有一个 PyGC_Head 结构体，
+    // 该结构体存储着垃圾回收相关的信息，如引用计数、双向链表指针等。
+    // 通过这种转换，我们可以获取到该对象对应的垃圾回收头部信息。
+    PyGC_Head *g = _Py_AS_GC(o);
+
+    // 使用 assert 断言确保该对象当前处于被跟踪状态。
+    // _PyGCHead_REFS(g) 用于获取垃圾回收头部的引用计数标记，
+    // _PyGC_REFS_UNTRACKED 是一个特定的标记值，表示对象未被跟踪。
+    // 如果对象本身就未被跟踪，那么执行取消跟踪操作是不合理的，
+    // 此时程序会触发断言错误并终止，有助于开发者发现逻辑错误。
+    assert(_PyGCHead_REFS(g) != _PyGC_REFS_UNTRACKED);
+
+    // 调用 _PyGCHead_SET_REFS 宏将该对象的引用计数标记设置为 _PyGC_REFS_UNTRACKED。
+    // 这表明该对象现在不再被垃圾回收机制跟踪，垃圾回收器在后续的操作中
+    // 将不会再把这个对象纳入考虑范围。
+    _PyGCHead_SET_REFS(g, _PyGC_REFS_UNTRACKED);
+
+    // 接下来进行双向链表的删除操作，将该对象从垃圾回收跟踪的双向链表中移除。
+    // 首先更新该对象前一个节点的 gc_next 指针，使其指向该对象的下一个节点。
+    // 这样就跳过了当前对象，相当于从链表中逻辑上删除了该对象。
+    g->gc.gc_prev->gc.gc_next = g->gc.gc_next;
+
+    // 然后更新该对象下一个节点的 gc_prev 指针，使其指向该对象的前一个节点。
+    // 进一步完成双向链表的删除操作，确保链表的连续性。
+    g->gc.gc_next->gc.gc_prev = g->gc.gc_prev;
+
+    // 最后，将该对象的 gc_next 指针设置为 NULL。
+    // 这一步是为了清理该对象在链表中的残留信息，避免出现悬空指针，
+    // 保证该对象不再与垃圾回收的双向链表有任何关联。
+    g->gc.gc_next = NULL;
+
+    // 使用 do...while(0) 结构是为了保证宏在各种使用场景下的正确性。
+    // 例如，当宏被用于 if 语句等控制结构中时，能避免出现意外的语法错误，
+    // 使得宏可以像一个单独的语句一样被使用。
+    } while (0);
+*/
 #define _PyObject_GC_UNTRACK(o) do { \
     PyGC_Head *g = _Py_AS_GC(o); \
     assert(_PyGCHead_REFS(g) != _PyGC_REFS_UNTRACKED); \
