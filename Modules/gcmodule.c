@@ -334,12 +334,21 @@ append_objects(PyObject *py_list, PyGC_Head *gc_list)
  * in containers, and is GC_REACHABLE for all tracked gc objects not in
  * containers.
  */
+ // 函数功能说明：将所有对象的 gc_refs 字段设置为其引用计数 ob_refcnt。
+ // 操作完成后，所有容器内对象的 gc_refs 大于 0，所有未在容器内且被垃圾回收机制跟踪的对象的 gc_refs 为 GC_REACHABLE
 static void
-update_refs(PyGC_Head *containers)
+update_refs(PyGC_Head* containers)
 {
-    PyGC_Head *gc = containers->gc.gc_next;
+    // 从 containers 指向的下一个对象开始遍历
+    PyGC_Head* gc = containers->gc.gc_next;
+    // 循环遍历所有被垃圾回收机制跟踪的对象，直到回到 containers 本身
     for (; gc != containers; gc = gc->gc.gc_next) {
+        // 断言当前对象的 gc_refs 为 GC_REACHABLE
+        // 这是为了确保在更新之前，对象的状态是符合预期的
         assert(_PyGCHead_REFS(gc) == GC_REACHABLE);
+        // 将当前对象的 gc_refs 设置为其引用计数
+        // FROM_GC(gc) 用于从 PyGC_Head 指针获取对应的 Python 对象指针
+        // Py_REFCNT 用于获取该对象的引用计数
         _PyGCHead_SET_REFS(gc, Py_REFCNT(FROM_GC(gc)));
         /* Python's cyclic gc should never see an incoming refcount
          * of 0:  if something decref'ed to 0, it should have been
@@ -359,25 +368,50 @@ update_refs(PyGC_Head *containers)
          * so serious that maybe this should be a release-build
          * check instead of an assert?
          */
+         // 注释说明：Python 的循环垃圾回收机制不应该看到引用计数为 0 的对象。
+         // 如果一个对象的引用计数减为 0，它应该立即被释放。
+         // 如果断言触发，可能的原因是：在对象的析构函数（tp_dealloc）中，一个支持垃圾回收的对象
+         // 在其销毁阶段仍被跟踪，并且做了一些操作或者允许一些操作回调到 Python 中，
+         // 这时垃圾回收机制可能会触发，并且看到仍在被跟踪的即将销毁的对象。
+         // 在添加这个断言之前，这样的错误会导致垃圾回收机制尝试再次删除该对象。
+         // 在调试版本中，当 _Py_ForgetReference 尝试第二次从所有对象的双向链表中移除该对象时，
+         // 会导致神秘的段错误。在发布版本中，会发生实际的双重释放，这会导致内存分配器的内部记账指针损坏。
+         // 这种情况非常严重，也许这个检查应该在发布版本中进行，而不仅仅是作为一个断言。
         assert(_PyGCHead_REFS(gc) != 0);
     }
 }
 
 /* A traversal callback for subtract_refs. */
+// 声明这是一个用于 subtract_refs 的遍历回调函数。在 Python 的垃圾回收机制中，
+// 经常会使用回调函数来遍历对象图，对每个对象执行特定的操作，这里的操作就是减少引用计数。
 static int
-visit_decref(PyObject *op, void *data)
+visit_decref(PyObject* op, void* data)
 {
+    // 断言 op 不为空指针。这是一种防御性编程的手段，确保传入的对象指针是有效的。
     assert(op != NULL);
+    // 检查对象 op 是否是支持垃圾回收的对象。在 Python 中，只有部分对象类型支持垃圾回收，
+    // 这些对象会包含一个 PyGC_Head 结构来管理其垃圾回收相关的信息。
     if (PyObject_IS_GC(op)) {
-        PyGC_Head *gc = AS_GC(op);
+        // 如果对象支持垃圾回收，将对象指针转换为 PyGC_Head 指针。
+        // PyGC_Head 是 Python 中用于管理垃圾回收的头部结构，包含了对象的引用计数等信息。
+        PyGC_Head* gc = AS_GC(op);
         /* We're only interested in gc_refs for objects in the
          * generation being collected, which can be recognized
          * because only they have positive gc_refs.
          */
+         // 注释解释了我们只关注正在被回收的代（generation）中的对象的 gc_refs。
+         // 在 Python 的分代垃圾回收机制中，对象被分为不同的代，每一代有不同的回收频率。
+         // 只有正在被回收的代中的对象的 gc_refs 是正数，其他对象的 gc_refs 可能为负数或 0。
+         // 断言 gc_refs 不为 0，如果为 0 说明对象的引用计数过小，可能存在错误。
         assert(_PyGCHead_REFS(gc) != 0); /* else refcount was too small */
+        // 检查对象的 gc_refs 是否为正数。如果为正数，说明该对象是正在被回收的代中的对象。
         if (_PyGCHead_REFS(gc) > 0)
+            // 如果对象的 gc_refs 为正数，调用 _PyGCHead_DECREF 函数将其引用计数减 1。
+            // 这是垃圾回收过程中的一个重要步骤，通过减少引用计数来标记对象是否可以被回收。
             _PyGCHead_DECREF(gc);
     }
+    // 回调函数返回 0 表示继续遍历。在 Python 的遍历机制中，回调函数返回 0 表示正常处理，
+    // 可以继续遍历下一个对象；返回非 0 值表示出现错误或需要停止遍历。
     return 0;
 }
 
@@ -386,16 +420,31 @@ visit_decref(PyObject *op, void *data)
  * objects not in containers.  The ones with gc_refs > 0 are directly
  * reachable from outside containers, and so can't be collected.
  */
+ // 定义一个静态函数 subtract_refs，它接受一个指向 PyGC_Head 结构体的指针 containers 作为参数
+ // 这个函数用于减去对象之间的循环引用计数
 static void
-subtract_refs(PyGC_Head *containers)
+subtract_refs(PyGC_Head* containers)
 {
+    // 声明一个 traverseproc 类型的变量 traverse
+    // traverseproc 是一个函数指针类型，用于指向对象的 tp_traverse 方法
     traverseproc traverse;
-    PyGC_Head *gc = containers->gc.gc_next;
-    for (; gc != containers; gc=gc->gc.gc_next) {
+    // 从 containers 指向的下一个对象开始遍历
+    // 因为 containers 本身是一个哨兵节点，真正需要处理的对象从它的下一个节点开始
+    PyGC_Head* gc = containers->gc.gc_next;
+    // 循环遍历所有被垃圾回收机制跟踪的对象，直到回到 containers 本身
+    for (; gc != containers; gc = gc->gc.gc_next) {
+        // 获取当前对象的类型对象，并从中提取 tp_traverse 方法
+        // Py_TYPE(FROM_GC(gc)) 用于获取当前 PyGC_Head 对应的 Python 对象的类型对象
+        // tp_traverse 是类型对象中的一个函数指针，用于遍历对象的引用
         traverse = Py_TYPE(FROM_GC(gc))->tp_traverse;
-        (void) traverse(FROM_GC(gc),
-                       (visitproc)visit_decref,
-                       NULL);
+        // 调用当前对象的 tp_traverse 方法
+        // FROM_GC(gc) 是当前对象的指针
+        // (visitproc)visit_decref 是一个访问函数，用于在遍历过程中减去引用计数
+        // NULL 是传递给访问函数的额外参数，这里没有使用
+        // (void) 强制类型转换是为了避免编译器发出未使用返回值的警告
+        (void)traverse(FROM_GC(gc),
+            (visitproc)visit_decref,
+            NULL);
     }
 }
 
@@ -450,10 +499,13 @@ visit_reachable(PyObject *op, PyGC_Head *reachable)
  * from outside the original young; and all objects in unreachable are
  * not.
  */
+ // 定义一个静态函数 move_unreachable，它接受两个指向 PyGC_Head 结构体的指针 young 和 unreachable 作为参数
+ // young 链表包含了需要进行垃圾回收检查的对象，unreachable 链表用于存放可能不可达的对象
 static void
-move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
+move_unreachable(PyGC_Head* young, PyGC_Head* unreachable)
 {
-    PyGC_Head *gc = young->gc.gc_next;
+    // 从 young 链表的第一个对象开始遍历
+    PyGC_Head* gc = young->gc.gc_next;
 
     /* Invariants:  all objects "to the left" of us in young have gc_refs
      * = GC_REACHABLE, and are indeed reachable (directly or indirectly)
@@ -463,10 +515,19 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
      * left of us in 'young' now have been scanned, and no objects here
      * or to the right have been scanned yet.
      */
+     // 不变式说明：
+     // 在 young 链表中，当前遍历位置“左侧”的所有对象的 gc_refs 为 GC_REACHABLE，
+     // 并且这些对象确实从进入函数时 young 链表外部（直接或间接）可达。
+     // 原 young 链表中当前遍历位置“左侧”的其他对象现在都在 unreachable 链表中，
+     // 并且它们的 gc_refs 为 GC_TENTATIVELY_UNREACHABLE。
+     // young 链表中当前遍历位置“左侧”的所有对象都已经被扫描过，而当前位置及其“右侧”的对象还未被扫描。
 
+     // 开始遍历 young 链表，直到回到链表头（young）
     while (gc != young) {
-        PyGC_Head *next;
+        // 保存当前对象的下一个对象指针，因为在处理过程中当前对象的位置可能会改变
+        PyGC_Head* next;
 
+        // 检查当前对象的 gc_refs 是否不为 0
         if (_PyGCHead_REFS(gc)) {
             /* gc is definitely reachable from outside the
              * original 'young'.  Mark it as such, and traverse
@@ -476,14 +537,25 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
              * so we have to wait until it returns to determine
              * the next object to visit.
              */
-            PyObject *op = FROM_GC(gc);
+             // 说明：当前对象肯定从原 young 链表外部可达。
+             // 标记它为可达，并遍历它的引用，以找出其他可能直接从它可达的对象。
+             // 注意：调用 tp_traverse 可能会向 young 链表追加对象，所以我们必须等它返回后再确定下一个要访问的对象。
+             // 获取当前 PyGC_Head 对应的 Python 对象指针
+            PyObject* op = FROM_GC(gc);
+            // 获取当前对象类型的 tp_traverse 方法，用于遍历对象的引用
             traverseproc traverse = Py_TYPE(op)->tp_traverse;
+            // 断言当前对象的 gc_refs 大于 0，确保对象可达
             assert(_PyGCHead_REFS(gc) > 0);
+            // 将当前对象的 gc_refs 标记为 GC_REACHABLE，表示它是可达的
             _PyGCHead_SET_REFS(gc, GC_REACHABLE);
-            (void) traverse(op,
-                            (visitproc)visit_reachable,
-                            (void *)young);
+            // 调用 tp_traverse 方法，传入 visit_reachable 作为访问函数，young 作为额外参数
+            // 该方法会遍历当前对象的引用，并将可达对象标记为可达
+            (void)traverse(op,
+                (visitproc)visit_reachable,
+                (void*)young);
+            // 获取当前对象的下一个对象指针
             next = gc->gc.gc_next;
+            // 如果当前对象是元组类型，尝试取消对它的跟踪
             if (PyTuple_CheckExact(op)) {
                 _PyTuple_MaybeUntrack(op);
             }
@@ -496,14 +568,20 @@ move_unreachable(PyGC_Head *young, PyGC_Head *unreachable)
              * visit_reachable will eventually move gc back into
              * young if that's so, and we'll see it again.
              */
+             // 说明：当前对象可能不可达。为了继续处理，假设它不可达。
+             // 当前对象不能从我们已经遍历过的任何对象直接可达，但可能从我们还未处理的对象可达。
+             // 如果是这样，visit_reachable 最终会将当前对象移回 young 链表，我们会再次处理它。
+             // 获取当前对象的下一个对象指针
             next = gc->gc.gc_next;
+            // 将当前对象从 young 链表移动到 unreachable 链表
             gc_list_move(gc, unreachable);
+            // 将当前对象的 gc_refs 标记为 GC_TENTATIVELY_UNREACHABLE，表示它可能不可达
             _PyGCHead_SET_REFS(gc, GC_TENTATIVELY_UNREACHABLE);
         }
+        // 移动到下一个对象继续遍历
         gc = next;
     }
 }
-
 /* Try to untrack all currently tracked dictionaries */
 static void
 untrack_dicts(PyGC_Head *head)
@@ -529,28 +607,46 @@ has_legacy_finalizer(PyObject *op)
  * Objects moved into `finalizers` have gc_refs set to GC_REACHABLE; the
  * objects remaining in unreachable are left at GC_TENTATIVELY_UNREACHABLE.
  */
+ // 定义一个静态函数 move_legacy_finalizers，它接受两个指向 PyGC_Head 结构体的指针
+ // unreachable 链表包含了之前被标记为可能不可达的对象
+ // finalizers 链表用于存放具有旧版终结器的对象
 static void
-move_legacy_finalizers(PyGC_Head *unreachable, PyGC_Head *finalizers)
+move_legacy_finalizers(PyGC_Head* unreachable, PyGC_Head* finalizers)
 {
-    PyGC_Head *gc;
-    PyGC_Head *next;
+    // 定义两个指向 PyGC_Head 结构体的指针
+    // gc 用于遍历 unreachable 链表中的对象
+    // next 用于保存当前对象的下一个对象，因为在移动对象时当前对象的链表关系会改变
+    PyGC_Head* gc;
+    PyGC_Head* next;
 
     /* March over unreachable.  Move objects with finalizers into
      * `finalizers`.
      */
-    for (gc = unreachable->gc.gc_next; gc != unreachable; gc = next) {
-        PyObject *op = FROM_GC(gc);
+     // 说明：遍历 unreachable 链表，将具有终结器的对象移动到 finalizers 链表中
 
+     // 从 unreachable 链表的第一个对象开始遍历，直到回到链表头（unreachable）
+    for (gc = unreachable->gc.gc_next; gc != unreachable; gc = next) {
+        // 获取当前 PyGC_Head 对应的 Python 对象指针
+        PyObject* op = FROM_GC(gc);
+
+        // 断言当前对象处于可能不可达状态
+        // 确保当前对象确实是之前标记为可能不可达的对象
         assert(IS_TENTATIVELY_UNREACHABLE(op));
+
+        // 保存当前对象的下一个对象指针
+        // 因为后续可能会将当前对象从 unreachable 链表中移除，所以需要提前保存下一个对象
         next = gc->gc.gc_next;
 
+        // 检查当前对象是否具有旧版终结器
         if (has_legacy_finalizer(op)) {
+            // 如果具有旧版终结器，将当前对象从 unreachable 链表移动到 finalizers 链表
             gc_list_move(gc, finalizers);
+            // 将该对象的引用计数状态标记为可达
+            // 因为要对这些有终结器的对象进行单独处理，暂时认为它们是可达的
             _PyGCHead_SET_REFS(gc, GC_REACHABLE);
         }
     }
 }
-
 /* A traversal callback for move_legacy_finalizer_reachable. */
 static int
 visit_move(PyObject *op, PyGC_Head *tolist)
@@ -568,17 +664,36 @@ visit_move(PyObject *op, PyGC_Head *tolist)
 /* Move objects that are reachable from finalizers, from the unreachable set
  * into finalizers set.
  */
+ // 定义一个静态函数 move_legacy_finalizer_reachable，它接受一个指向 PyGC_Head 结构体的指针 finalizers 作为参数
+ // finalizers 链表存放着具有旧版终结器的对象
 static void
-move_legacy_finalizer_reachable(PyGC_Head *finalizers)
+move_legacy_finalizer_reachable(PyGC_Head* finalizers)
 {
+    // 声明一个 traverseproc 类型的变量 traverse
+    // traverseproc 是一个函数指针类型，用于指向对象的 tp_traverse 方法，该方法用于遍历对象的引用
     traverseproc traverse;
-    PyGC_Head *gc = finalizers->gc.gc_next;
+    // 从 finalizers 链表的第一个对象开始遍历
+    // 因为 finalizers 本身可看作链表的头节点，真正要处理的对象从它的下一个节点开始
+    PyGC_Head* gc = finalizers->gc.gc_next;
+    // 循环遍历 finalizers 链表中的所有对象，直到回到链表头（finalizers）
     for (; gc != finalizers; gc = gc->gc.gc_next) {
         /* Note that the finalizers list may grow during this. */
+        // 注释说明：在遍历过程中，finalizers 链表可能会增长
+        // 这是因为在调用 tp_traverse 方法并使用 visit_move 访问函数时，
+        // 可能会发现新的可达对象并将它们添加到 finalizers 链表中
+
+        // 获取当前对象的类型对象，并从中提取 tp_traverse 方法
+        // Py_TYPE(FROM_GC(gc)) 用于获取当前 PyGC_Head 对应的 Python 对象的类型对象
+        // tp_traverse 是类型对象中的一个函数指针，用于遍历对象的引用
         traverse = Py_TYPE(FROM_GC(gc))->tp_traverse;
-        (void) traverse(FROM_GC(gc),
-                        (visitproc)visit_move,
-                        (void *)finalizers);
+        // 调用当前对象的 tp_traverse 方法
+        // FROM_GC(gc) 是当前对象的指针
+        // (visitproc)visit_move 是一个访问函数，用于在遍历过程中处理可达对象，可能会将可达对象移动到 finalizers 链表
+        // (void *)finalizers 是传递给访问函数的额外参数，这里传递 finalizers 链表指针，方便访问函数操作
+        // (void) 强制类型转换是为了避免编译器发出未使用返回值的警告
+        (void)traverse(FROM_GC(gc),
+            (visitproc)visit_move,
+            (void*)finalizers);
     }
 }
 
@@ -749,25 +864,40 @@ debug_cycle(const char *msg, PyObject *op)
  * __del__ methods are appended to garbage.  All objects in finalizers are
  * merged into the old list regardless.
  */
+ // 定义一个静态函数 handle_legacy_finalizers，接受两个指向 PyGC_Head 结构体的指针
+ // finalizers 链表包含具有旧版终结器的对象
+ // old 链表用于合并 finalizers 链表中的对象
 static void
-handle_legacy_finalizers(PyGC_Head *finalizers, PyGC_Head *old)
+handle_legacy_finalizers(PyGC_Head* finalizers, PyGC_Head* old)
 {
-    PyGC_Head *gc = finalizers->gc.gc_next;
+    // 从 finalizers 链表的第一个对象开始遍历
+    PyGC_Head* gc = finalizers->gc.gc_next;
 
+    // 检查 _PyRuntime.gc.garbage 列表是否为空
     if (_PyRuntime.gc.garbage == NULL) {
+        // 如果为空，创建一个新的空列表
         _PyRuntime.gc.garbage = PyList_New(0);
+        // 检查列表是否创建成功
         if (_PyRuntime.gc.garbage == NULL)
+            // 如果创建失败，触发致命错误
             Py_FatalError("gc couldn't create gc.garbage list");
     }
-    for (; gc != finalizers; gc = gc->gc.gc_next) {
-        PyObject *op = FROM_GC(gc);
 
+    // 遍历 finalizers 链表中的所有对象
+    for (; gc != finalizers; gc = gc->gc.gc_next) {
+        // 获取当前 PyGC_Head 对应的 Python 对象指针
+        PyObject* op = FROM_GC(gc);
+
+        // 检查是否开启了 DEBUG_SAVEALL 调试模式或者对象是否具有旧版终结器
         if ((_PyRuntime.gc.debug & DEBUG_SAVEALL) || has_legacy_finalizer(op)) {
+            // 如果满足条件，将当前对象添加到 _PyRuntime.gc.garbage 列表中
             if (PyList_Append(_PyRuntime.gc.garbage, op) < 0)
+                // 如果添加失败，跳出循环
                 break;
         }
     }
 
+    // 将 finalizers 链表合并到 old 链表中
     gc_list_merge(finalizers, old);
 }
 
@@ -775,10 +905,16 @@ handle_legacy_finalizers(PyGC_Head *finalizers, PyGC_Head *old)
  * Note that this may remove some (or even all) of the objects from the
  * list, due to refcounts falling to 0.
  */
+ // 定义一个静态函数 finalize_garbage，它接受一个指向 PyGC_Head 结构体的指针 collectable 作为参数
+ // collectable 链表包含了待执行终结操作的对象
 static void
-finalize_garbage(PyGC_Head *collectable)
+finalize_garbage(PyGC_Head* collectable)
 {
+    // 声明一个 destructor 类型的变量 finalize
+    // destructor 是一个函数指针类型，用于指向对象的 tp_finalize 方法，该方法用于执行对象的终结操作
     destructor finalize;
+    // 定义一个 PyGC_Head 类型的变量 seen
+    // 这个变量用于临时存放从 collectable 链表中取出的对象，以避免在终结操作过程中链表结构变化带来的问题
     PyGC_Head seen;
 
     /* While we're going through the loop, `finalize(op)` may cause op, or
@@ -789,52 +925,110 @@ finalize_garbage(PyGC_Head *collectable)
      * If objects vanish from the `collectable` and `seen` lists we don't
      * care.
      */
+     // 注释说明：在循环执行过程中，调用 `finalize(op)` 可能会导致对象 `op` 或其他对象因为引用计数降为零而被回收。
+     // 所以在每次迭代中，`collectable` 链表的结构可能会发生很大变化，难以依赖其原本的结构。
+     // 为了保证安全性，我们总是取出 `collectable` 链表的第一个对象，并将其移动到临时的 `seen` 链表中。
+     // 如果对象从 `collectable` 和 `seen` 链表中消失，我们不需要关心。
+
+     // 初始化 seen 链表
+     // 确保 seen 链表的指针等信息正确设置，为后续存储对象做准备
     gc_list_init(&seen);
 
+    // 当 collectable 链表不为空时，继续循环
     while (!gc_list_is_empty(collectable)) {
-        PyGC_Head *gc = collectable->gc.gc_next;
-        PyObject *op = FROM_GC(gc);
+        // 获取 collectable 链表的第一个对象
+        PyGC_Head* gc = collectable->gc.gc_next;
+        // 获取当前 PyGC_Head 对应的 Python 对象指针
+        PyObject* op = FROM_GC(gc);
+        // 将当前对象从 collectable 链表移动到 seen 链表
+        // 避免在执行终结操作时 collectable 链表结构混乱
         gc_list_move(gc, &seen);
+
+        // 检查当前对象是否满足执行终结操作的条件
+        // 条件 1：对象还未被终结过，即 _PyGCHead_FINALIZED(gc) 为 0
+        // 条件 2：对象的类型具有终结器特性，即 PyType_HasFeature(Py_TYPE(op), Py_TPFLAGS_HAVE_FINALIZE) 为真
+        // 条件 3：对象的类型定义了 tp_finalize 方法，即 Py_TYPE(op)->tp_finalize 不为 NULL
         if (!_PyGCHead_FINALIZED(gc) &&
-                PyType_HasFeature(Py_TYPE(op), Py_TPFLAGS_HAVE_FINALIZE) &&
-                (finalize = Py_TYPE(op)->tp_finalize) != NULL) {
+            PyType_HasFeature(Py_TYPE(op), Py_TPFLAGS_HAVE_FINALIZE) &&
+            (finalize = Py_TYPE(op)->tp_finalize) != NULL) {
+            // 标记当前对象已经被终结
             _PyGCHead_SET_FINALIZED(gc, 1);
+            // 增加对象的引用计数
+            // 防止在执行终结操作过程中对象因为引用计数降为零而被提前回收
             Py_INCREF(op);
+            // 调用对象的终结器方法
             finalize(op);
+            // 减少对象的引用计数
+            // 恢复对象原本的引用计数状态
             Py_DECREF(op);
         }
     }
+
+    // 将 seen 链表中的对象合并回 collectable 链表
+    // 完成终结操作后，恢复 collectable 链表的完整性
     gc_list_merge(&seen, collectable);
 }
 
 /* Walk the collectable list and check that they are really unreachable
    from the outside (some objects could have been resurrected by a
    finalizer). */
+   // 定义一个静态函数 check_garbage，它接受一个指向 PyGC_Head 结构体的指针 collectable 作为参数
+   // collectable 链表包含了待检查是否为垃圾对象的对象
 static int
-check_garbage(PyGC_Head *collectable)
+check_garbage(PyGC_Head* collectable)
 {
-    PyGC_Head *gc;
+    // 定义一个指向 PyGC_Head 结构体的指针 gc，用于遍历 collectable 链表
+    PyGC_Head* gc;
+
+    // 第一个循环：更新对象的引用计数
+    // 从 collectable 链表的第一个对象开始遍历，直到回到链表头（collectable）
     for (gc = collectable->gc.gc_next; gc != collectable;
-         gc = gc->gc.gc_next) {
+        gc = gc->gc.gc_next) {
+        // 将当前对象的 gc_refs 字段设置为该对象的实际引用计数
+        // FROM_GC(gc) 用于从 PyGC_Head 指针获取对应的 Python 对象指针
+        // Py_REFCNT 用于获取该对象的引用计数
         _PyGCHead_SET_REFS(gc, Py_REFCNT(FROM_GC(gc)));
+        // 断言当前对象的引用计数不为 0
+        // 确保对象在更新引用计数后，其引用计数是有效的
         assert(_PyGCHead_REFS(gc) != 0);
     }
+
+    // 调用 subtract_refs 函数，减去对象之间的循环引用计数
+    // 该函数会遍历 collectable 链表中的每个对象，调用其 tp_traverse 方法，
+    // 并使用 visit_decref 作为访问函数，从而减去循环引用计数
     subtract_refs(collectable);
+
+    // 第二个循环：检查剩余引用计数
+    // 再次从 collectable 链表的第一个对象开始遍历，直到回到链表头（collectable）
     for (gc = collectable->gc.gc_next; gc != collectable;
-         gc = gc->gc.gc_next) {
+        gc = gc->gc.gc_next) {
+        // 断言当前对象的剩余引用计数大于等于 0
+        // 确保减去循环引用计数后，引用计数不会为负数
         assert(_PyGCHead_REFS(gc) >= 0);
+        // 如果当前对象的剩余引用计数不为 0，说明该对象还有外部引用，不是垃圾对象
         if (_PyGCHead_REFS(gc) != 0)
+            // 返回 -1 表示检查失败，存在非垃圾对象
             return -1;
     }
+
+    // 如果所有对象的剩余引用计数都为 0，说明 collectable 链表中的对象都是垃圾对象
+    // 返回 0 表示检查成功
     return 0;
 }
 
+// 定义一个静态函数 revive_garbage，它接受一个指向 PyGC_Head 结构体的指针 collectable 作为参数
+// collectable 链表包含了那些可能被错误标记为不可达的对象，需要将它们恢复为可达状态
 static void
-revive_garbage(PyGC_Head *collectable)
+revive_garbage(PyGC_Head* collectable)
 {
-    PyGC_Head *gc;
+    // 定义一个指向 PyGC_Head 结构体的指针 gc，用于遍历 collectable 链表
+    PyGC_Head* gc;
+
+    // 遍历 collectable 链表，从链表的第一个对象开始，直到回到链表头（collectable）
     for (gc = collectable->gc.gc_next; gc != collectable;
-         gc = gc->gc.gc_next) {
+        gc = gc->gc.gc_next) {
+        // 将当前对象的 gc_refs 字段设置为 GC_REACHABLE，表示该对象是可达的
+        // 这样做是为了撤销之前可能的不可达标记，恢复对象的正常状态
         _PyGCHead_SET_REFS(gc, GC_REACHABLE);
     }
 }
@@ -843,28 +1037,50 @@ revive_garbage(PyGC_Head *collectable)
  * tricky business as the lists can be changing and we don't know which
  * objects may be freed.  It is possible I screwed something up here.
  */
+ // 定义一个静态函数 delete_garbage，它接受两个指向 PyGC_Head 结构体的指针 collectable 和 old 作为参数
+ // collectable 链表包含了待处理的垃圾对象
+ // old 链表用于存放那些在清除操作后仍然存活的对象
 static void
-delete_garbage(PyGC_Head *collectable, PyGC_Head *old)
+delete_garbage(PyGC_Head* collectable, PyGC_Head* old)
 {
+    // 声明一个 inquiry 类型的变量 clear
+    // inquiry 是一个函数指针类型，用于指向对象的 tp_clear 方法，该方法用于清除对象的引用
     inquiry clear;
 
+    // 当 collectable 链表不为空时，继续循环处理其中的对象
     while (!gc_list_is_empty(collectable)) {
-        PyGC_Head *gc = collectable->gc.gc_next;
-        PyObject *op = FROM_GC(gc);
+        // 获取 collectable 链表的第一个对象
+        PyGC_Head* gc = collectable->gc.gc_next;
+        // 获取当前 PyGC_Head 对应的 Python 对象指针
+        PyObject* op = FROM_GC(gc);
 
+        // 检查是否开启了 DEBUG_SAVEALL 调试模式
         if (_PyRuntime.gc.debug & DEBUG_SAVEALL) {
+            // 如果开启了 DEBUG_SAVEALL 调试模式，将当前对象添加到 _PyRuntime.gc.garbage 列表中
+            // 这样做是为了在调试时保留这些垃圾对象，方便后续分析
             PyList_Append(_PyRuntime.gc.garbage, op);
         }
         else {
+            // 如果没有开启 DEBUG_SAVEALL 调试模式，尝试清除对象的引用
+            // 获取对象类型的 tp_clear 方法
             if ((clear = Py_TYPE(op)->tp_clear) != NULL) {
+                // 增加对象的引用计数，防止在清除操作过程中对象被提前回收
                 Py_INCREF(op);
+                // 调用对象的 tp_clear 方法，清除对象的引用
                 clear(op);
+                // 减少对象的引用计数，恢复对象原本的引用计数状态
                 Py_DECREF(op);
             }
         }
+
+        // 检查对象是否仍然存活
+        // 如果 collectable 链表的下一个对象仍然是当前对象，说明对象在清除操作后仍然存活
         if (collectable->gc.gc_next == gc) {
-            /* object is still alive, move it, it may die later */
+            // 注释说明：对象仍然存活，将其移动到 old 链表中，它可能在后续操作中被销毁
+            // 将当前对象从 collectable 链表移动到 old 链表
             gc_list_move(gc, old);
+            // 将该对象的引用计数状态标记为可达
+            // 因为对象仍然存活，所以暂时认为它是可达的
             _PyGCHead_SET_REFS(gc, GC_REACHABLE);
         }
     }
